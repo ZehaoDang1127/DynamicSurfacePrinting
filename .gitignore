@@ -1,5 +1,13 @@
 __pycache__/
 *.py[cod]
 .venv/
+.venv-tds/
 output/*
 !output/.gitkeep
+
+# Local recordings, downloaded datasets, and experiment scratch files.
+/textureless_deformable_surfaces/
+/tmp/
+/configs/splits.json
+*.pt
+*.pth

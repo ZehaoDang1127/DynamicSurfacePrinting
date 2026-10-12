@@ -1,0 +1,18 @@
+{
+  "history": 10,
+  "horizon": 1,
+  "expected_dt_ms": 33.333333333333336,
+  "timing_tolerance": 0.2,
+  "min_valid_fraction": 0.1,
+  "hidden_channels": [
+    32,
+    64
+  ],
+  "kernel_size": 3,
+  "batch_size": 8,
+  "learning_rate": 0.001,
+  "epochs": 50,
+  "patience": 8,
+  "grad_clip": 1,
+  "seed": 42
+}
