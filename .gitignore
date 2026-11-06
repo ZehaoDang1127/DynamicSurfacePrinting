@@ -2,12 +2,27 @@ __pycache__/
 *.py[cod]
 .venv/
 .venv-tds/
+.venv-controller/
+.venv-pi312/
+.pi-bootstrap/
+.pi-python/
 output/*
 !output/.gitkeep
+!output/README.md
 
 # Local recordings, downloaded datasets, and experiment scratch files.
 /textureless_deformable_surfaces/
+/Dataset/
+/archive/
 /tmp/
 /configs/splits.json
 *.pt
 *.pth
+
+# Calibration images (local); keep code, calibration.{json,npz,yaml}, REPORT.md and per-image errors.
+/CameraCalibration/*.png
+/CameraCalibration/results/corners/
+/CameraCalibration/results/residuals/
+/CameraCalibration/results/undistorted/
+/CameraCalibration/results/*.jpg
+/CameraCalibration/results/*.png

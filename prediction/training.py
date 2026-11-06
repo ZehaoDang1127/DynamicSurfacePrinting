@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import hashlib
+import io
 import json
 import math
 import os
@@ -97,12 +99,15 @@ def train(
     output_dir: str | Path,
     device: str | torch.device = 'auto',
     *, cache_frames: bool = False, window_stride: int = 1,
+    initialize_from: str | Path | None = None,
 ) -> dict:
     """Fit on training sessions, select on validation, and never evaluate test.
 
     The best checkpoint records the exact local session paths and geometry.
     Normalization is fitted exclusively on the training recordings, before
-    window construction. All epochs are bounded by config.epochs.
+    window construction. All epochs are bounded by config.epochs. Optional
+    transfer initialization copies weights only, never the source recording
+    geometry, normalization, temporal settings or optimizer state.
     """
     output = Path(output_dir).resolve()
     if output.exists() and (not output.is_dir() or any(output.iterdir())):
@@ -131,6 +136,9 @@ def train(
         num_workers=0, collate_fn=_collate_samples,
     )
     model = ConvLSTMPredictor(config).to(target_device)
+    initialization = None
+    if initialize_from is not None:
+        initialization = _initialize_weights(model, initialize_from)
     optimizer = torch.optim.Adam(model.parameters(), lr=config.learning_rate)
     output.mkdir(parents=True, exist_ok=True)
     best_path = output / 'best.pt'
@@ -164,6 +172,8 @@ def train(
         'provenance': 'Trained locally; session paths identify data sources. Normalization uses training sessions only.',
         **provenance,
     }
+    if initialization is not None:
+        metadata['initialization'] = initialization
     _write_json(metadata_path, metadata)
     history: list[dict] = []
     best_validation = math.inf
@@ -204,6 +214,8 @@ def train(
                     'split_path': str(Path(split_path).resolve()),
                     **provenance,
                 }
+                if initialization is not None:
+                    checkpoint['initialization'] = initialization
                 _save_checkpoint(best_path, checkpoint)
             else:
                 stale_epochs += 1
@@ -244,6 +256,11 @@ def load_checkpoint(
     """
     target_device = resolve_device(device)
     checkpoint = torch.load(Path(path), map_location='cpu', weights_only=True)
+    return _model_from_checkpoint(checkpoint, target_device)
+
+
+def _model_from_checkpoint(checkpoint: dict, target_device: torch.device):
+    """Validate the same checkpoint contract for inference and initialization."""
     if not isinstance(checkpoint, dict) or checkpoint.get('schema_version') != CHECKPOINT_SCHEMA_VERSION:
         raise ValueError('unsupported prediction checkpoint schema')
     required = (
@@ -270,3 +287,32 @@ def load_checkpoint(
     model.to(target_device)
     model.eval()
     return model, config, normalization, checkpoint
+
+
+def _initialize_weights(model: ConvLSTMPredictor, path: str | Path) -> dict:
+    """Initialize compatible convolutions; record the exact source bytes used.
+
+    Spatial dimensions and temporal task settings do not change parameter
+    shapes. They may differ for target training, but that does not establish
+    that the source checkpoint can perform inference in the target setup.
+    """
+    source_path = Path(path).expanduser().resolve()
+    source_bytes = source_path.read_bytes()
+    source = torch.load(io.BytesIO(source_bytes), map_location='cpu', weights_only=True)
+    source_model, source_config, _, checkpoint = _model_from_checkpoint(source, torch.device('cpu'))
+    architecture = ('hidden_channels', 'kernel_size')
+    differing = [name for name in architecture if getattr(source_config, name) != getattr(model.config, name)]
+    if differing:
+        raise ValueError('initialization architecture differs from target: ' + ', '.join(differing))
+    model.load_state_dict(source_model.state_dict(), strict=True)
+    return {
+        'kind': 'pretrained_weights_only',
+        'source_checkpoint': str(source_path),
+        'source_sha256': hashlib.sha256(source_bytes).hexdigest(),
+        'source_config': source_config.to_dict(),
+        'source_geometry': checkpoint['geometry'],
+        'source_shape': list(checkpoint['shape']),
+        'optimizer_state_transferred': False,
+        'normalization': 'fitted exclusively on target training sessions',
+        'scope': 'weight initialization only; source geometry and task are not qualified for target deployment',
+    }

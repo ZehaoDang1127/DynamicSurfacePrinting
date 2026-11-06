@@ -1,0 +1,670 @@
+{
+  "created_utc": "2026-10-21T18:30:28.718013+00:00",
+  "opencv_version": "5.0.0",
+  "model": "OpenCV pinhole / Brown-Conrady, 5 coefficients",
+  "image_width": 848,
+  "image_height": 480,
+  "pattern_inner_corners_columns_rows": [
+    9,
+    6
+  ],
+  "square_size_mm": 25.0,
+  "object_point_convention": "Z=0; first detected inner corner is origin; x follows columns, y follows rows. Symmetric board orientation can flip between views.",
+  "pose_convention": "X_camera_mm = Rodrigues(rvec) @ X_board_mm + tvec_mm; camera x right, y down, z forward",
+  "camera_matrix": [
+    [
+      456.41988717042466,
+      0.0,
+      431.844190827738
+    ],
+    [
+      0.0,
+      455.612709831903,
+      225.57941883682304
+    ],
+    [
+      0.0,
+      0.0,
+      1.0
+    ]
+  ],
+  "distortion_coefficients": [
+    -0.02917792622434565,
+    0.06661469929176346,
+    -0.0007653423775564869,
+    0.0033625752897923277,
+    -0.02943679972528999
+  ],
+  "distortion_coefficient_order": [
+    "k1",
+    "k2",
+    "p1",
+    "p2",
+    "k3"
+  ],
+  "rms_reprojection_error_px": 0.2799787343015335,
+  "verified_rms_px": 0.2799788038766258,
+  "all_detected_views_baseline": {
+    "rms_px": 0.3230657567932678,
+    "camera_matrix": [
+      [
+        453.56714348962043,
+        0.0,
+        430.96715344002246
+      ],
+      [
+        0.0,
+        452.8964153907562,
+        227.56682465370778
+      ],
+      [
+        0.0,
+        0.0,
+        1.0
+      ]
+    ],
+    "distortion_coefficients": [
+      -0.03099565835269678,
+      0.06464866516829657,
+      0.00041817237734222097,
+      0.0028113282923651005,
+      -0.02836381176410374
+    ],
+    "intrinsic_parameter_change_final_minus_baseline": [
+      2.852743680804224,
+      2.716294441146772,
+      0.877037387715518,
+      -1.9874058168847455
+    ]
+  },
+  "outlier_policy": {
+    "enabled": true,
+    "rule": "Single pass on baseline per-view RMS: max(0.5 px, median + 3 * 1.4826 * MAD)",
+    "median_px": 0.242363874150326,
+    "mad_px": 0.051120636605876096,
+    "cutoff_px": 0.5
+  },
+  "images_found": 25,
+  "images_detected": 25,
+  "images_used": 24,
+  "detection_failures": [],
+  "excluded_images": [
+    "25_Color.png"
+  ],
+  "intrinsic_standard_deviations": {
+    "fx": 0.674528520423058,
+    "fy": 0.6464756079992167,
+    "cx": 0.540451490622156,
+    "cy": 0.43980024469562423,
+    "k1": 0.0023353850130071814,
+    "k2": 0.007484088176244468,
+    "p1": 0.0002561631308902477,
+    "p2": 0.00036665145419369503,
+    "k3": 0.007459853461323908
+  },
+  "leave_one_view_out": {
+    "rms_px": 0.29212043945166294,
+    "median_px": 0.2438828886876471,
+    "max_px": 0.4745107622045482,
+    "intrinsic_order": [
+      "fx",
+      "fy",
+      "cx",
+      "cy"
+    ],
+    "intrinsic_min_px": [
+      455.26322078394946,
+      454.45793311270927,
+      430.65127206390497,
+      225.14801614796642
+    ],
+    "intrinsic_max_px": [
+      457.4216776003211,
+      456.521354201529,
+      433.1181742846586,
+      226.42424882253206
+    ],
+    "note": "Intrinsics fitted without the held-out image; board pose fitted on its 54 corners. Checks consistency, not independent metric accuracy."
+  },
+  "corner_coordinate_bounds_px": [
+    [
+      45.26608657836914,
+      58.71525573730469
+    ],
+    [
+      743.7012329101562,
+      409.32049560546875
+    ]
+  ],
+  "new_camera_matrix_alpha0": [
+    [
+      460.66760734750676,
+      0.0,
+      435.85213170306224
+    ],
+    [
+      0.0,
+      462.3533867344508,
+      225.11773071605373
+    ],
+    [
+      0.0,
+      0.0,
+      1.0
+    ]
+  ],
+  "valid_roi_alpha0_xywh": [
+    0,
+    0,
+    847,
+    479
+  ],
+  "new_camera_matrix_alpha1": [
+    [
+      458.6000036210869,
+      0.0,
+      435.3641699252134
+    ],
+    [
+      0.0,
+      453.2691556705847,
+      225.31485539891693
+    ],
+    [
+      0.0,
+      0.0,
+      1.0
+    ]
+  ],
+  "valid_roi_alpha1_xywh": [
+    1,
+    5,
+    843,
+    470
+  ],
+  "views": [
+    {
+      "image": "1_Color.png",
+      "used": true,
+      "baseline_rms_px": 0.22308057349002505,
+      "final_model_pose_rms_px": 0.21580643375101352,
+      "held_out_rms_px": 0.21914740132553384,
+      "max_corner_error_px": 0.6106986403465271,
+      "source_sha256": "25acc3b3e351f00e459e19c3aa81f5473bad40129b44645627f964699afc64d1",
+      "rvec_board_to_camera": [
+        0.09977925238288338,
+        -0.04167800613137169,
+        -3.11052658262223
+      ],
+      "tvec_board_to_camera_mm": [
+        10.438757790058924,
+        85.68174850006821,
+        325.9649384645067
+      ]
+    },
+    {
+      "image": "2_Color.png",
+      "used": true,
+      "baseline_rms_px": 0.21866898151008582,
+      "final_model_pose_rms_px": 0.21705791929148519,
+      "held_out_rms_px": 0.22833756840138414,
+      "max_corner_error_px": 0.3866909444332123,
+      "source_sha256": "431f72b7a8da9b6e06719a6b2b1f6c31306b6901b4621c0fb2ba46c79d77bd2c",
+      "rvec_board_to_camera": [
+        -0.41724856022730333,
+        -0.11412712873705119,
+        3.110755813220855
+      ],
+      "tvec_board_to_camera_mm": [
+        -45.690074426791625,
+        74.67507211139217,
+        377.6966146747377
+      ]
+    },
+    {
+      "image": "3_Color.png",
+      "used": true,
+      "baseline_rms_px": 0.18225093261467873,
+      "final_model_pose_rms_px": 0.1854223643297126,
+      "held_out_rms_px": 0.18968971474615876,
+      "max_corner_error_px": 0.5025343894958496,
+      "source_sha256": "f4ede095d485240645efe0acab5adfadc4b73b46b79214123fdb3e4d76caeb0a",
+      "rvec_board_to_camera": [
+        -0.5531641427835834,
+        -0.14835510787883716,
+        2.757210098015083
+      ],
+      "tvec_board_to_camera_mm": [
+        -10.308813056602366,
+        37.44030874437772,
+        502.49451790603274
+      ]
+    },
+    {
+      "image": "4_Color.png",
+      "used": true,
+      "baseline_rms_px": 0.19150071563718898,
+      "final_model_pose_rms_px": 0.18354965418235727,
+      "held_out_rms_px": 0.1912942728463194,
+      "max_corner_error_px": 0.4162781536579132,
+      "source_sha256": "306c327438795929bf101fc9b682510b8a5c681e9ec1922c3a9a809342b1641b",
+      "rvec_board_to_camera": [
+        -0.32409457254771123,
+        -0.0001729840227167785,
+        2.978634020148756
+      ],
+      "tvec_board_to_camera_mm": [
+        57.03972524621797,
+        54.61106884575819,
+        264.4960113504355
+      ]
+    },
+    {
+      "image": "5_Color.png",
+      "used": true,
+      "baseline_rms_px": 0.23505921650694403,
+      "final_model_pose_rms_px": 0.2416111074883908,
+      "held_out_rms_px": 0.24928116746655535,
+      "max_corner_error_px": 0.5127152800559998,
+      "source_sha256": "a4187b34e14c1585af175dbe7a06e12fc82c16fb892e7c05d69f23009be9bd43",
+      "rvec_board_to_camera": [
+        -0.36953235737979834,
+        -0.1341152191706367,
+        3.0912346681972984
+      ],
+      "tvec_board_to_camera_mm": [
+        90.95801839626724,
+        67.32898172389093,
+        326.6443655578698
+      ]
+    },
+    {
+      "image": "6_Color.png",
+      "used": true,
+      "baseline_rms_px": 0.3584784024144448,
+      "final_model_pose_rms_px": 0.3505057097246589,
+      "held_out_rms_px": 0.3675335310443383,
+      "max_corner_error_px": 0.8146613240242004,
+      "source_sha256": "01dfaec12a1cff1832509600ae19f775ced0476fee43e7d18d515f9aff1ebe3c",
+      "rvec_board_to_camera": [
+        0.6874534823123136,
+        -0.27309846018814415,
+        -2.6036336632808417
+      ],
+      "tvec_board_to_camera_mm": [
+        24.074566534900853,
+        119.74106021791992,
+        316.636796411809
+      ]
+    },
+    {
+      "image": "7_Color.png",
+      "used": true,
+      "baseline_rms_px": 0.1912432375444499,
+      "final_model_pose_rms_px": 0.19956481581652946,
+      "held_out_rms_px": 0.20662451356683273,
+      "max_corner_error_px": 0.44758468866348267,
+      "source_sha256": "2b349a5b764c06020b476fac82e227a911c724829b7bd486ffce41898e659781",
+      "rvec_board_to_camera": [
+        -0.27389122830522056,
+        -0.04076252802990934,
+        2.6173918687512483
+      ],
+      "tvec_board_to_camera_mm": [
+        20.624594290352327,
+        10.989324262987905,
+        352.3090608057851
+      ]
+    },
+    {
+      "image": "8_Color.png",
+      "used": true,
+      "baseline_rms_px": 0.2199614381995977,
+      "final_model_pose_rms_px": 0.22296903913043614,
+      "held_out_rms_px": 0.22409273928744247,
+      "max_corner_error_px": 0.5481566786766052,
+      "source_sha256": "157d4a51426b745e0b2f295fc8c894a6cf5e7fa0170a599e4d0087f7b177e988",
+      "rvec_board_to_camera": [
+        -0.14948201937381358,
+        -0.2562026061621263,
+        3.0906289384320926
+      ],
+      "tvec_board_to_camera_mm": [
+        86.39977358390894,
+        66.18946901126517,
+        436.4272706810179
+      ]
+    },
+    {
+      "image": "9_Color.png",
+      "used": true,
+      "baseline_rms_px": 0.3764490597995003,
+      "final_model_pose_rms_px": 0.38175690503458937,
+      "held_out_rms_px": 0.3965727242955272,
+      "max_corner_error_px": 0.8286823630332947,
+      "source_sha256": "0f336ee8a915a66072db0e1da90f06800c9c2d48f247b0ae9ef25bcb62b88bca",
+      "rvec_board_to_camera": [
+        -0.5278960839559739,
+        0.03194231791720192,
+        -3.0762556608562406
+      ],
+      "tvec_board_to_camera_mm": [
+        92.99996269828435,
+        76.08058586125367,
+        242.59111513653667
+      ]
+    },
+    {
+      "image": "10_Color.png",
+      "used": true,
+      "baseline_rms_px": 0.17376595400956973,
+      "final_model_pose_rms_px": 0.17165848653110263,
+      "held_out_rms_px": 0.17821549829907932,
+      "max_corner_error_px": 0.3685489296913147,
+      "source_sha256": "cb39015af281db797071e3ba87ab3b7c90b754de65318829e7fa35ab254e4446",
+      "rvec_board_to_camera": [
+        -0.23892552022249416,
+        -0.08094117567745637,
+        3.0295762874930325
+      ],
+      "tvec_board_to_camera_mm": [
+        89.72192224050835,
+        36.351466474866434,
+        305.3168416203536
+      ]
+    },
+    {
+      "image": "11_Color.png",
+      "used": true,
+      "baseline_rms_px": 0.34024823547129,
+      "final_model_pose_rms_px": 0.3485851692908001,
+      "held_out_rms_px": 0.3607558864551225,
+      "max_corner_error_px": 0.7615393996238708,
+      "source_sha256": "e6e7af6ff8ffedd781a7b28c553efd8b861a4f1171cfe602e816094f09cafc1b",
+      "rvec_board_to_camera": [
+        0.45477513932461644,
+        -0.05892733727332767,
+        3.0666668000458532
+      ],
+      "tvec_board_to_camera_mm": [
+        72.23071301075332,
+        53.18609100666478,
+        250.81732304493605
+      ]
+    },
+    {
+      "image": "12_Color.png",
+      "used": true,
+      "baseline_rms_px": 0.1970655355483265,
+      "final_model_pose_rms_px": 0.19747045129064472,
+      "held_out_rms_px": 0.20466952816690642,
+      "max_corner_error_px": 0.41339945793151855,
+      "source_sha256": "58adca15551303a6dcdf42337009dc39954d11cd325bf4f47b01070b4d6b4033",
+      "rvec_board_to_camera": [
+        0.17855924465528733,
+        -0.05758115089263618,
+        -2.1014004773226045
+      ],
+      "tvec_board_to_camera_mm": [
+        38.8888915644922,
+        134.7315075856795,
+        332.94917538814803
+      ]
+    },
+    {
+      "image": "13_Color.png",
+      "used": true,
+      "baseline_rms_px": 0.3342235969427244,
+      "final_model_pose_rms_px": 0.33454953199131654,
+      "held_out_rms_px": 0.3490079631734416,
+      "max_corner_error_px": 0.8203619718551636,
+      "source_sha256": "655d8df6b3d8740f318490eeb032d2c105421cbe374b65a6a9a7e5f88e285a99",
+      "rvec_board_to_camera": [
+        0.46888988193688047,
+        -0.38613763158354164,
+        -1.6841325924882005
+      ],
+      "tvec_board_to_camera_mm": [
+        -100.38928776113383,
+        125.6228860382532,
+        324.2111557321966
+      ]
+    },
+    {
+      "image": "14_Color.png",
+      "used": true,
+      "baseline_rms_px": 0.2714196676791802,
+      "final_model_pose_rms_px": 0.2638685899537595,
+      "held_out_rms_px": 0.2745111955772064,
+      "max_corner_error_px": 0.5486420392990112,
+      "source_sha256": "6c482a12057a1e4f02e4af967f1a46d7742294f6718ceba23f80b9b2521ab8f8",
+      "rvec_board_to_camera": [
+        -0.038759907363180676,
+        0.13385800268546824,
+        0.08803044722509829
+      ],
+      "tvec_board_to_camera_mm": [
+        -176.93215438515207,
+        -68.31896393368069,
+        296.6657903986228
+      ]
+    },
+    {
+      "image": "15_Color.png",
+      "used": true,
+      "baseline_rms_px": 0.16763971852784706,
+      "final_model_pose_rms_px": 0.16421845118160763,
+      "held_out_rms_px": 0.16648768458042976,
+      "max_corner_error_px": 0.33975982666015625,
+      "source_sha256": "13fd0aa4e4b03ffe9039205fe45c8c401949699753b36aa4f5df5adc4c2eec78",
+      "rvec_board_to_camera": [
+        -0.010571295371102195,
+        -0.05232104786828239,
+        -0.015622045946702256
+      ],
+      "tvec_board_to_camera_mm": [
+        -142.15004134036195,
+        -42.757740773266036,
+        260.3817893826275
+      ]
+    },
+    {
+      "image": "16_Color.png",
+      "used": true,
+      "baseline_rms_px": 0.26107788065909376,
+      "final_model_pose_rms_px": 0.23844528833049733,
+      "held_out_rms_px": 0.2497921031624471,
+      "max_corner_error_px": 0.5062752366065979,
+      "source_sha256": "87f4e9818ad27d9f5f01b21279de15457ed6cd595006fdcf201b98b856dfeaf7",
+      "rvec_board_to_camera": [
+        -0.16260559199741798,
+        -0.27513496057937864,
+        -0.29596224959596856
+      ],
+      "tvec_board_to_camera_mm": [
+        -189.95428097523464,
+        -54.11457837080464,
+        267.53831590625833
+      ]
+    },
+    {
+      "image": "17_Color.png",
+      "used": true,
+      "baseline_rms_px": 0.36950391661286863,
+      "final_model_pose_rms_px": 0.38717753724125437,
+      "held_out_rms_px": 0.4059051346855898,
+      "max_corner_error_px": 0.9467266798019409,
+      "source_sha256": "14e90d5b4d08f89e13e0ad63c0de948e8da8a996c52380e5d27547e0fb1510e0",
+      "rvec_board_to_camera": [
+        -0.21203435337238333,
+        0.44900618349788374,
+        -1.4901480158869054
+      ],
+      "tvec_board_to_camera_mm": [
+        -23.81031031708295,
+        111.83988846536083,
+        409.0755490638357
+      ]
+    },
+    {
+      "image": "18_Color.png",
+      "used": true,
+      "baseline_rms_px": 0.2502519456980041,
+      "final_model_pose_rms_px": 0.23336717183213826,
+      "held_out_rms_px": 0.23848460990873885,
+      "max_corner_error_px": 0.5873154997825623,
+      "source_sha256": "92ebb0d008080b7caf5289c2dd8203c66edb765db42eda21823f122fea15da54",
+      "rvec_board_to_camera": [
+        -0.20109450016151464,
+        -0.2430638085657397,
+        -0.2355137919318004
+      ],
+      "tvec_board_to_camera_mm": [
+        -82.82931304179785,
+        -35.80954385435275,
+        294.6821913389472
+      ]
+    },
+    {
+      "image": "19_Color.png",
+      "used": true,
+      "baseline_rms_px": 0.242363874150326,
+      "final_model_pose_rms_px": 0.2213792227886063,
+      "held_out_rms_px": 0.23337006848926267,
+      "max_corner_error_px": 0.44511720538139343,
+      "source_sha256": "d67a137daf47191115510a4d16c33253fbfc1f6ac97cd541412db114ab0bf6e3",
+      "rvec_board_to_camera": [
+        0.16317876561429887,
+        -0.22176398740646294,
+        -2.203994941389709
+      ],
+      "tvec_board_to_camera_mm": [
+        65.20003051655273,
+        114.35376648156968,
+        307.45493369514986
+      ]
+    },
+    {
+      "image": "20_Color.png",
+      "used": true,
+      "baseline_rms_px": 0.2201920684788632,
+      "final_model_pose_rms_px": 0.2118284761419388,
+      "held_out_rms_px": 0.2160232683594725,
+      "max_corner_error_px": 0.4157775044441223,
+      "source_sha256": "450ad9620906d90015093259f8518c02b9c04be8b1717b97228efa2d4df3d2b2",
+      "rvec_board_to_camera": [
+        -0.17088864625786898,
+        -0.15091460432535514,
+        -3.114179295387273
+      ],
+      "tvec_board_to_camera_mm": [
+        85.21498638338007,
+        72.08125017367323,
+        282.13426241573734
+      ]
+    },
+    {
+      "image": "21_Color.png",
+      "used": true,
+      "baseline_rms_px": 0.23823996876308237,
+      "final_model_pose_rms_px": 0.24178082363702236,
+      "held_out_rms_px": 0.3055006549887191,
+      "max_corner_error_px": 0.6464453339576721,
+      "source_sha256": "b910354b780785c9ae9e9a1bd03463fa6536d1acc534420a90890950765af4c4",
+      "rvec_board_to_camera": [
+        0.16083250301269517,
+        -0.610905720862813,
+        -0.5645143685111379
+      ],
+      "tvec_board_to_camera_mm": [
+        -272.5971739692516,
+        -45.40092071031014,
+        319.952743770007
+      ]
+    },
+    {
+      "image": "22_Color.png",
+      "used": true,
+      "baseline_rms_px": 0.2958377891600538,
+      "final_model_pose_rms_px": 0.2920832038347503,
+      "held_out_rms_px": 0.29977046820249353,
+      "max_corner_error_px": 0.7243242263793945,
+      "source_sha256": "1f91e307db084b198ced3387f0744136d11877733e351ec88e2c9272e6cf163e",
+      "rvec_board_to_camera": [
+        -0.0207626011685389,
+        -1.0032381088695026,
+        -0.42016928969290446
+      ],
+      "tvec_board_to_camera_mm": [
+        -288.20757588155675,
+        7.374068516672733,
+        430.7680254949264
+      ]
+    },
+    {
+      "image": "23_Color.png",
+      "used": true,
+      "baseline_rms_px": 0.44846861164842095,
+      "final_model_pose_rms_px": 0.4417453293324999,
+      "held_out_rms_px": 0.4535356436660056,
+      "max_corner_error_px": 0.7660526037216187,
+      "source_sha256": "b58f47a08f67358fe9ed654cc1e7ad37e1cd503af68cf206d10b41a262b6052f",
+      "rvec_board_to_camera": [
+        -0.6053327728413017,
+        -0.01727289613588407,
+        -0.06169889654739993
+      ],
+      "tvec_board_to_camera_mm": [
+        13.26563782652907,
+        -19.950403205188305,
+        388.8416723796067
+      ]
+    },
+    {
+      "image": "24_Color.png",
+      "used": true,
+      "baseline_rms_px": 0.46516335411386756,
+      "final_model_pose_rms_px": 0.4588505936633091,
+      "held_out_rms_px": 0.4745107622045482,
+      "max_corner_error_px": 1.0149586200714111,
+      "source_sha256": "db33a175670cf523871e8ccf906a95bac388814fb762cdc93e92e2e00fd0fa11",
+      "rvec_board_to_camera": [
+        0.15446441346477893,
+        0.8573596867274529,
+        -0.4235654254484635
+      ],
+      "tvec_board_to_camera_mm": [
+        -2.91971722575745,
+        -40.29124450000664,
+        476.25192269923014
+      ]
+    },
+    {
+      "image": "25_Color.png",
+      "used": false,
+      "baseline_rms_px": 0.8347378081133574,
+      "final_model_pose_rms_px": 0.8756724040979217,
+      "held_out_rms_px": "",
+      "max_corner_error_px": 2.135673761367798,
+      "source_sha256": "5642f2dce4dd6bf8c1b14c1e43befa1f335472c161d4398ae8646c5fa6ee5bff",
+      "rvec_board_to_camera": [
+        0.7984950371181133,
+        0.307661001786597,
+        -0.14558162763301657
+      ],
+      "tvec_board_to_camera_mm": [
+        -188.59893370767907,
+        -64.8812131925228,
+        289.9831467013858
+      ]
+    }
+  ],
+  "limitations": [
+    "Color images only; does not calibrate the depth stream, color-depth registration, or camera-to-printer transform.",
+    "Reprojection RMS is a pixel fitting error, not a millimeter accuracy measurement.",
+    "The model assumes a flat rigid target with accurately square 25 mm cells; target deformation and motion can bias parameters.",
+    "Use with the same stream, resolution, crop, and focus; edge regions outside observed corners are less constrained.",
+    "Formal OpenCV standard deviations do not include target imperfections or other systematic errors."
+  ],
+  "opencv_reference": "https://docs.opencv.org/4.12.0/d9/d0c/group__calib3d.html"
+}

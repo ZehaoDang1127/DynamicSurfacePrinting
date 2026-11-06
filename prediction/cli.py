@@ -21,6 +21,8 @@ def build_parser():
                                  help='cache loaded training/validation maps in RAM')
             command.add_argument('--window-stride', type=int, default=1,
                                  help='training window start stride; validation always uses stride 1')
+            command.add_argument('--initialize-from', type=Path,
+                                 help='initialize compatible model weights from a checkpoint; fit target normalization and use a fresh optimizer')
     command = commands.add_parser('evaluate')
     command.add_argument('--splits', type=Path, required=True)
     command.add_argument('--split', choices=('train', 'validation', 'test'), default='test')
@@ -111,7 +113,8 @@ def run(args):
     if args.command == 'train':
         from .training import train
         result = train(args.splits, load_prediction_config(args.config), args.output, args.device,
-                       cache_frames=args.cache_frames, window_stride=args.window_stride)
+                       cache_frames=args.cache_frames, window_stride=args.window_stride,
+                       initialize_from=getattr(args, 'initialize_from', None))
     elif args.command == 'evaluate':
         from .evaluation import evaluate
         result = evaluate(args.checkpoint, args.splits, args.output, args.split,

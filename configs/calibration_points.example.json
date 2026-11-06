@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "camera_frame": "color",
+  "pixel_coordinates": "raw_full_image",
+  "image_size": [848, 480],
+  "synthetic_demo": false,
+  "points": [
+    {"id": "P1", "printer_xyz_mm": null, "image_uv_px": null},
+    {"id": "P2", "printer_xyz_mm": null, "image_uv_px": null},
+    {"id": "P3", "printer_xyz_mm": null, "image_uv_px": null},
+    {"id": "P4", "printer_xyz_mm": null, "image_uv_px": null}
+  ]
+}

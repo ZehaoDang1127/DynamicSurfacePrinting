@@ -1,350 +1,188 @@
-# Dynamic Surface Printer: ConvLSTM and baselines
+# Dynamic Surface Printer
 
-Python code for recording surface height maps, forecasting a future map with
-ConvLSTM or kinematic baselines, and evaluating those forecasts. This README
-covers the software setup and commands. Run every command from the repository
-root. Command blocks use PowerShell.
+Occlusion-aware surface estimation and forecasting for printing on a moving surface.
+A RealSense D405 observes a deforming surface. Depth inside a fixed region of interest
+(ROI) is converted to a regular height map with a validity mask. A **ConvLSTM + U-Net**
+then reconstructs the current surface, including cells hidden by the print head, and
+forecasts the next six frames (about 200 ms at 30 FPS).
 
-## Install
+```text
+D405 RGB-D ──► ROI crop + depth gate ──► 23×45 height map + valid mask ──► ConvLSTM + U-Net ──► current map + 6 future maps
+                                              ▲                                   (hidden cells filled)
+                         print-head mask ─────┘  (synthetic Gaussian masks in training,
+                                                  measured head box + depth envelope at test)
+```
 
-Use Python 3.10 or newer. Create an environment and install the dependencies
-for the workflows you need:
+Status (6 Nov 2026): the offline pipeline is trained and evaluated on 30 FPS servo
+recordings. Height values are camera-axis depth in a camera-XY grid, not printer-frame
+height. Physical accuracy behind a real nozzle has not yet been validated (see
+[Current results](#current-results)).
+
+## Repository layout
+
+```text
+Dynamic_Surface_Printer/
+├── Dataset/                       Raw D405 recordings (read-only)
+│   ├── recordings/servo_patterns_20_30fps_20261105/   20 clean servo patterns, 30 FPS → train/val/test
+│   ├── Test/                      Patterns 21–25 with the print head in view (real occlusion)
+│   └── Test_groundTruth/          Same patterns recorded ~45 min earlier, head out of view (repeat reference)
+├── acquisition/servo_d405/        Recorder and servo-pattern generator used to capture Dataset/
+├── surface_mapper/                Depth → gridded height map with validity mask; session recording
+├── prediction/                    Models and training
+│   ├── occlusion_model.py         U-Net encoder/decoder + ConvLSTM dynamics (current + multi-step output)
+│   ├── occlusion_data.py          Windows, normalisation, synthetic occlusion masks
+│   ├── occlusion.py               CLI: train / evaluate / inspect
+│   ├── occlusion_inference.py     Causal replay of a recorded session
+│   ├── plot_occlusion.py          Held-out visualisation
+│   └── model.py, baselines.py, tds*.py, …   earlier single-horizon ConvLSTM, kinematic baselines, cloth benchmark
+├── tools/                         Pipeline scripts (run with python -m tools.<name>)
+│   ├── convert_servo_30fps.py     ROI crop + depth gate → height maps + recording-level splits
+│   ├── evaluate_occlusion_heldout.py      Synthetic-mask evaluation on the held-out split
+│   ├── prepare_real_occlusion_repeats.py  Real head mask + time pairing of Test vs Test_groundTruth
+│   ├── evaluate_real_occlusion_repeats.py, visualize_real_occlusion_repeat.py
+│   ├── estimate_pair_registration.py      Exploratory 3-D registration of a repeat pair
+│   ├── head_mask/                 RGB head-silhouette analysis and synthetic blocking (2 Nov pilot)
+│   └── matlab/, build_pi_bundle.py, convert_servo_depth.py, …
+├── configs/                       JSON configs; occlusion_d405_30fps_20261105.json = trained model
+├── output/                        Main-line results, one folder per pipeline stage → output/README.md
+├── docs/                          Method, protocols and subsystem guides → docs/README.md
+├── tests/                         unittest suite
+├── controller/  CameraCalibration/  pi_support/   Printer control, camera–printer calibration, Pi launcher
+├── archive/                       Earlier and side experiments → archive/README.md
+└── requirements*.txt  setup_pi.sh  run_pi.sh
+```
+
+## Environments
+
+Two local environments are used (Windows, PowerShell, run from the repository root):
+
+| Environment | Use | Install |
+| --- | --- | --- |
+| `.venv` | Conversion and real-head preparation (OpenCV) | `pip install -r requirements-calibration.txt -r requirements-prediction.txt` |
+| `.venv-tds` | Training/evaluation on CUDA (PyTorch cu128) | `pip install -r requirements-tds-benchmark.txt` + CUDA torch (below) |
 
 ```powershell
-git clone https://github.com/ZehaoDang1127/DynamicSurfacePrinting.git
-Set-Location DynamicSurfacePrinting
-python -m venv .venv
-$python = ".\.venv\Scripts\python.exe"
-
-# Capture and NumPy baselines.
-& $python -m pip install -r requirements.txt
-
-# ConvLSTM (includes capture dependencies).
-& $python -m pip install -r requirements-prediction.txt
-
-# Cloth benchmark plots (includes prediction dependencies).
-& $python -m pip install -r requirements-tds-benchmark.txt
+& .\.venv-tds\Scripts\python.exe -m pip install --upgrade "torch>=2.6,<3" --index-url https://download.pytorch.org/whl/cu128
 ```
 
-In an existing checkout, start from its root and set `$python` to the environment
-you want to use. Select the existing local benchmark environment with
-`$python = ".\.venv-tds\Scripts\python.exe"`.
+## Pipeline
 
-`requirements.txt` installs NumPy and, on Windows, `pyrealsense2`.
-Synthetic capture and all kinematic baselines only need NumPy at runtime.
-ConvLSTM additionally needs PyTorch; benchmark plotting additionally needs
-Matplotlib. A physical RealSense camera also requires its runtime/driver.
+Use a **new, empty** output folder for every run. Replace `<date>` with the run date.
 
-Use `--device cpu` for CPU execution, `--device auto` to select CUDA when
-available, or `--device cuda` to require a CUDA-enabled PyTorch installation.
-The current local benchmark environment uses a CUDA 12.8 PyTorch build. To
-install that build in a compatible environment:
+### 1. Record (Raspberry Pi + D405 + goBILDA servo)
+
+`acquisition/servo_d405/record_servo_d405.py` records lossless FFV1 RGB/depth, camera
+timestamps and commanded servo positions. Follow the [recording protocol](docs/occlusion_forecasting/RECORDING_PROTOCOL.md)
+and [acquisition README](acquisition/servo_d405/README.md). Store finished collections in
+`Dataset/`.
+
+### 2. ROI crop → height maps
 
 ```powershell
-& $python -m pip install --upgrade "torch>=2.6,<3" --index-url https://download.pytorch.org/whl/cu128
-& $python -c "import torch; print(torch.__version__); print('CUDA available:', torch.cuda.is_available())"
+.\.venv\Scripts\python.exe -m tools.convert_servo_30fps `
+  --source Dataset\recordings\servo_patterns_20_30fps_20261105 `
+  --output output\servo_30fps_camera_maps_<date>
 ```
 
-## Source layout
+The script crops native depth pixels x 245–420 and y 205–315 (the ROI), keeps depth in
+230–450 mm, and bins it into a 23 × 45 grid of 4 mm camera-XY cells. It checks every
+decoded frame against the recorded SHA-256, and holds out whole patterns
+(validation: 15, 19; test: 18, 20). The ROI and depth gate are specific to this scene and
+are not a verified segmentation.
 
-| Path | Purpose |
-| --- | --- |
-| `surface_mapper/` | Camera/synthetic acquisition, height-map projection, session recording |
-| `prediction/model.py` | Stacked ConvLSTM cells and masked MAE loss |
-| `prediction/data.py` | Session loading, split validation, normalization, temporal windows |
-| `prediction/training.py` | Training, validation, early stopping, checkpoints |
-| `prediction/inference.py`, `prediction/commands.py` | Streaming inference, replay, synthetic demo |
-| `prediction/baselines.py`, `prediction/baseline_commands.py` | Persistence, velocity, acceleration, baseline workflows |
-| `prediction/evaluation.py`, `prediction/metrics.py`, `prediction/reporting.py` | Shared-support metrics and HTML reports |
-| `prediction/artifacts.py` | Forecast maps, manifests, and timing logs |
-| `prediction/tds.py`, `prediction/tds_plot.py` | Cloth dataset preparation, benchmark, plots |
-| `prediction/tds_train_report.py` | Matched comparison with an earlier cloth training run |
-| `visualize_ca_live.m` | MATLAB browser for recorded baseline forecasts and errors |
-| `configs/` | Camera, ConvLSTM, and example split configurations |
-| `tests/` | Unit and integration tests |
-
-Use a new or empty output directory for each capture, training, evaluation,
-replay, or benchmark run. Outputs go under `output/` in these examples.
-
-## Verify everything without a camera
+### 3. Train the ConvLSTM + U-Net
 
 ```powershell
-& $python -m unittest discover -s tests -v
-& $python -m surface_mapper --source synthetic --frames 30 --output output/synthetic_capture
-& $python -m prediction demo --output output/prediction_demo --epochs 2 --device cpu
+.\.venv-tds\Scripts\python.exe -m prediction.occlusion train `
+  --splits output\servo_30fps_camera_maps_20261105\splits.json `
+  --config configs\occlusion_d405_30fps_20261105.json `
+  --output output\servo_30fps_convlstm_<date> --device cuda
 ```
 
-The demo generates independent train/validation/test recordings, trains a
-small ConvLSTM, evaluates it against baselines, and replays the test session.
-It uses six input frames and 8/8 hidden channels. See
-`output/prediction_demo/demo_report.json` and
-`output/prediction_demo/evaluation/report.html`.
+Inputs: 25 frames (about 800 ms) of normalized height, validity, time since last
+observation and a never-observed flag. Outputs: the current reconstruction plus 6 future
+maps. During training, moving anisotropic Gaussian masks hide about 20% of the grid in
+the input history. The loss is masked MAE with an extra term (`hidden_weight` = 2) on
+hidden cells. See the [pipeline guide](docs/occlusion_forecasting/OCCLUSION_CONVLSTM_UNET.md).
 
-Exercise live ConvLSTM inference with the demo's matching camera configuration:
+### 4. Evaluate with synthetic occlusion (held-out patterns)
 
 ```powershell
-& $python -m prediction live `
-  --checkpoint output/prediction_demo/model/best.pt `
-  --camera-config output/prediction_demo/camera.json `
-  --source synthetic --frames 30 `
-  --output output/demo_live --device cpu
+.\.venv-tds\Scripts\python.exe -m tools.evaluate_occlusion_heldout `
+  --checkpoint output\servo_30fps_convlstm_20261105\best.pt `
+  --splits output\servo_30fps_camera_maps_20261105\splits.json `
+  --output output\servo_30fps_internal_synthetic_eval_<date> --device cuda
 ```
 
-## Record height-map sessions
+### 5. Evaluate with the real print head
+
+The head mask is a hand-inspected RGB box padded by 20 px. It is projected through a
+depth envelope taken only from the training data and the factory depth-to-color
+calibration. See [real-head evaluation](docs/occlusion_forecasting/REAL_OCCLUSION_REPEAT_EVALUATION.md).
 
 ```powershell
-& $python -m surface_mapper `
-  --config configs/d405_camera_frame.json `
-  --source realsense --frames 300 `
-  --output output/train_trial_01 --save-depth
+.\.venv\Scripts\python.exe -m tools.prepare_real_occlusion_repeats `
+  --blocked Dataset\Test --repeat-reference Dataset\Test_groundTruth `
+  --training-splits output\servo_30fps_camera_maps_20261105\splits.json `
+  --output output\real_occlusion_prior_repeats_<date>
+
+.\.venv-tds\Scripts\python.exe -m tools.evaluate_real_occlusion_repeats `
+  --prepared output\real_occlusion_prior_repeats_<date> `
+  --checkpoint output\servo_30fps_convlstm_20261105\best.pt `
+  --output output\real_occlusion_repeat_evaluation_<date> --device cuda
+
+.\.venv-tds\Scripts\python.exe -m tools.visualize_real_occlusion_repeat `
+  --prepared output\real_occlusion_prior_repeats_<date>\21_amplitude_beats.npz `
+  --predictions output\real_occlusion_repeat_evaluation_<date>\21_amplitude_beats.npz `
+  --output output\real_occlusion_repeat_evaluation_<date>\example.png
 ```
 
-Repeat with distinct output names for other recordings used in your split file.
-Use `--frames 0` to capture until Ctrl+C, `--source synthetic` for generated
-input, and omit `--save-depth` when raw depth is unnecessary.
-
-A completed session contains `manifest.json`, `frame_*.npz`, and
-`latest_height_mm.csv`. Prediction reads `height_mm`, `valid`, frame numbers,
-and camera timestamps. Invalid heights are NaN. Raw depth and manual labels
-are unnecessary for prediction; future recorded maps supply training targets.
-
-Recordings used by one model must share grid geometry, camera cadence, and
-coordinate transform. The default camera configuration uses an identity
-transform, so heights represent camera Z in millimetres.
-
-## Run the baselines
-
-The baseline CLI produces constant-acceleration forecasts without a checkpoint.
-Evaluation compares persistence (the latest map), a linear least-squares
-velocity fit, and a quadratic least-squares acceleration fit. Fits use actual
-observation timestamps.
-
-Run, replay, and evaluate a synthetic baseline trial:
+### 6. Replay on any recorded session
 
 ```powershell
-& $python -m prediction baseline-live `
-  --camera-config configs/d405_camera_frame.json `
-  --source synthetic --frames 30 --history 5 `
-  --output output/ca_synthetic --record-input
-
-& $python -m prediction baseline-predict `
-  --session output/ca_synthetic/observations `
-  --history 5 --output output/ca_replay
-
-& $python -m prediction baseline-evaluate `
-  --session output/ca_synthetic/observations `
-  --history 5 --output output/ca_evaluation
+.\.venv-tds\Scripts\python.exe -m prediction.occlusion_inference `
+  --checkpoint output\servo_30fps_convlstm_20261105\best.pt `
+  --session output\servo_30fps_camera_maps_20261105\18_stop_start `
+  --output output\replay_<date> --device cuda
 ```
 
-Run the predictor with a RealSense camera and save its inputs:
+## Current results
+
+Model: `output/servo_30fps_convlstm_20261105/best.pt` (epoch 26 of 30). It was trained on
+16 patterns, validated on 2 and tested on 2.
+
+| Test | Region | Horizon | Model MAE | Persistence MAE (same support) |
+| --- | --- | --- | ---: | ---: |
+| Synthetic masks, held-out patterns 18 & 20 | hidden cells | current | 2.59 mm | 3.60 mm |
+| Synthetic masks, held-out patterns 18 & 20 | hidden cells | 200 ms | 3.47 mm | 4.41 mm |
+| Real head, patterns 21–25 vs. separate repeat run | head-mask region | current | 5.79 mm* | n/a |
+| Real head, patterns 21–25 vs. separate repeat run | head-mask region | 200 ms | 5.21 mm* | n/a |
+
+\*These are differences from an unregistered repeat recording made about 45 minutes
+earlier, not ground-truth errors. On cells visible in both runs, the two recordings
+already differ by 5.49 mm MAE. Details are in
+[`output/servo_30fps_convlstm_20261105/RESULTS.md`](output/servo_30fps_convlstm_20261105/RESULTS.md)
+and [`output/real_occlusion_repeat_evaluation_20261106/TEST_RESULTS.md`](output/real_occlusion_repeat_evaluation_20261106/TEST_RESULTS.md).
+
+**Open issues:** validated camera–printer registration; synchronized independent
+reference behind the head; a measured per-frame nozzle mask instead of a padded box;
+real-time 30 Hz inference.
+
+## Tests
 
 ```powershell
-& $python -m prediction baseline-live `
-  --camera-config configs/d405_camera_frame.json `
-  --source realsense --frames 0 --history 5 `
-  --output output/ca_live --record-input --save-depth
-
-# Run after stopping capture with Ctrl+C.
-& $python -m prediction baseline-evaluate `
-  --session output/ca_live/observations `
-  --history 5 --output output/ca_live_evaluation
+.\.venv-tds\Scripts\python.exe -m unittest discover -s tests -v
 ```
 
-The default horizon is one configured camera interval, about 33.3 ms at 30 FPS.
-Set `--horizon-ms 66.6666666667` for a two-interval forecast. All three baseline
-commands accept `--history`, `--horizon-ms`, `--max-gap-ms` (default 100), and
-`--min-valid-fraction` (default 0.1). History must be at least three frames.
-Unsupported fitted cells remain NaN.
+## Other parts of the project
 
-`baseline-evaluate` also accepts `--target-tolerance-ms`,
-`--motion-threshold-mm`, and `--roi X0 Y0 X1 Y1`. Its default target matching
-tolerance is 20% of a camera interval. ROI bounds are grid indices with the
-upper bounds excluded. Reports are `metrics.json`, `report.html`, and
-`example_*.npz`.
+- Printer control (SV08 / Klipper / Moonraker), stationary print trials:
+  [docs/printer_control](docs/printer_control/) and the `controller/` package.
+- Camera–printer calibration: [docs/geometry_calibration](docs/geometry_calibration/) and `CameraCalibration/`.
+- Raspberry Pi deployment: [docs/raspberry_pi](docs/raspberry_pi/), `setup_pi.sh`, `run_pi.sh`.
+- Earlier prediction work (single-horizon ConvLSTM, constant-acceleration baselines,
+  cloth benchmark, transfer learning): [docs/earlier_prediction](docs/earlier_prediction/). The full
+  pre-reorganization README is kept there as `README_2026-10_full_workflows.md`.
+- Original September project outline: [docs/project](docs/project/).
 
-### Optional MATLAB baseline viewer
-
-After a `baseline-live` run with `--record-input`, run this from MATLAB with
-the repository as the current folder:
-
-```matlab
-visualize_ca_live(fullfile(pwd, 'output', 'ca_synthetic'))
-% Or inspect the real-camera example above:
-visualize_ca_live(fullfile(pwd, 'output', 'ca_live'))
-```
-
-The viewer shows forecasts, matched future observations, errors, velocity,
-acceleration, support, and timing. Use its slider or arrow keys to browse.
-It reads NPZ files directly without a Python bridge or extra toolbox.
-Calling `visualize_ca_live` without an argument selects `output/ca_live`.
-
-## Train and evaluate ConvLSTM
-
-Create the split file:
-
-```powershell
-Copy-Item configs/splits.example.json configs/splits.json
-```
-
-Edit `configs/splits.json` to identify your completed recordings. Paths resolve
-relative to the split file, so this example refers to the repository's `output/`:
-
-```json
-{
-  "train": ["../output/train_trial_01", "../output/train_trial_02"],
-  "validation": ["../output/validation_trial_01"],
-  "test": ["../output/test_trial_01"]
-}
-```
-
-Keep whole recordings in exactly one split. Normalization uses training frames,
-checkpoint selection uses validation MAE, and testing supplies the final
-comparison.
-
-```powershell
-& $python -m prediction inspect `
-  --splits configs/splits.json --config configs/convlstm.json
-
-& $python -m prediction train `
-  --splits configs/splits.json --config configs/convlstm.json `
-  --output output/convlstm_model --device auto --threads 4
-
-& $python -m prediction evaluate `
-  --checkpoint output/convlstm_model/best.pt `
-  --splits configs/splits.json --split test `
-  --output output/convlstm_evaluation --device auto --threads 4
-
-& $python -m prediction predict `
-  --checkpoint output/convlstm_model/best.pt `
-  --session output/test_trial_01 `
-  --output output/convlstm_replay --device auto
-
-& $python -m prediction live `
-  --checkpoint output/convlstm_model/best.pt `
-  --camera-config configs/d405_camera_frame.json `
-  --source realsense --frames 300 `
-  --output output/convlstm_live --device auto
-```
-
-The checkpoint and live/replay inputs must have matching geometry. Temporal
-gaps, timestamp-domain changes, or insufficient coverage reset streaming
-history. Training excludes windows with unacceptable intervals.
-
-`configs/convlstm.json` uses ten height/mask input frames, 32/64 recurrent
-channels, 3x3 kernels, and a linear 1x1 output head. Each window starts with zero
-hidden states. Training uses masked MAE, Adam, batch size 8, learning rate 0.001,
-gradient clipping at 1.0, seed 42, up to 50 epochs, and validation patience 8.
-The nominal target is `latest_timestamp_ms + horizon * expected_dt_ms`.
-Default `horizon=1` and `expected_dt_ms=33.333333333333336` predict one map about
-33.3 ms ahead. Change the configuration before training for another cadence
-or horizon.
-
-Add `--cache-frames --window-stride 1` to training to cache maps in RAM and use
-every eligible start position. Larger strides subsample training windows;
-validation still uses stride 1. Evaluation accepts `--roi X0 Y0 X1 Y1` and
-`--motion-threshold-mm` (default 0.5).
-
-| Workflow | Files written |
-| --- | --- |
-| Training | `best.pt`, `history.json`, `run.json` |
-| Evaluation | `metrics.json`, `report.html`, `example_*.npz` |
-| Replay/live prediction | `prediction_*.npz`, `forecasts.jsonl`, `manifest.json` |
-
-Evaluation reports MAE, RMSE, P95 absolute error, comparison coverage, and
-all/moving/stationary results per session. ConvLSTM and baselines share valid
-target and complete-history support. Two-frame checkpoints compare persistence
-and velocity; acceleration requires at least three history frames.
-The additional `convlstm_all_valid_targets` metric uses all valid targets.
-
-## Prepare and benchmark the cloth dataset
-
-Place the extracted dataset in `textureless_deformable_surfaces/`. The adapter
-accepts either the directory containing `camera_intrinsics.txt` or its parent
-containing a nested `textureless_deformable_surfaces/` directory. It reads
-`cloth/depth_maps/<sequence>/depth_*.npz` with a `depth` array. Raw dataset
-files are local inputs excluded from Git.
-
-```powershell
-& $python -m prediction.tds prepare `
-  --raw textureless_deformable_surfaces `
-  --output output/tds_cloth/prepared
-
-& $python -m prediction.tds benchmark `
-  --prepared output/tds_cloth/prepared `
-  --output output/tds_cloth/benchmark `
-  --epochs 40 --horizons 1 2 3 --device auto
-
-& $python -m prediction.tds_plot `
-  --benchmark output/tds_cloth/benchmark
-```
-
-Preparation produces camera-Z maps on a 32x32 metric grid with 20 mm cells.
-Times are inferred from frame indices at nominal 5 FPS; windows crossing missing
-indices are rejected. Whole sequences define the split:
-`Lc_top_edge_a`, `Lc_top_edge_b`, and `Ll_bottom_edge` are validation;
-`Lc_left_edge`, `Ld_bottom_edge`, and `Lr_top_edge_2` are test; remaining cloth
-sequences are training. The consecutive top-edge segments stay together.
-
-The benchmark trains separate models for 200/400/600 ms horizons with five
-input maps, 16/16 channels, batch size 32, and training stride 5. All three
-baselines use the same comparison support. Outputs include `benchmark.json`,
-`SUMMARY.md`, `summary.csv`, per-horizon model/evaluation directories,
-five-second temporal-block bootstrap comparisons, and central ROI scores.
-Plotting adds `prediction_vs_baselines.png`, `prediction_vs_baselines.pdf`,
-`training_curves.png`, and `report.html`.
-
-Train the fuller 32/64-channel model on every eligible window at 200 ms:
-
-```powershell
-& $python -m prediction inspect `
-  --splits output/tds_cloth/prepared/splits.json `
-  --config configs/convlstm_tds_cloth_full.json
-
-& $python -m prediction train `
-  --splits output/tds_cloth/prepared/splits.json `
-  --config configs/convlstm_tds_cloth_full.json `
-  --output output/tds_cloth/cloth_full_model `
-  --device auto --threads 4 --cache-frames --window-stride 1
-
-& $python -m prediction evaluate `
-  --checkpoint output/tds_cloth/cloth_full_model/best.pt `
-  --splits output/tds_cloth/prepared/splits.json --split test `
-  --output output/tds_cloth/cloth_full_evaluation `
-  --device auto --threads 4 --motion-threshold-mm 5
-```
-
-Regenerate the existing local fuller-run comparison with:
-
-```powershell
-& $python -m prediction.tds_train_report `
-  --run output/tds_cloth/convlstm_full_20261012_200ms
-```
-
-This optional report requires a completed run containing `model/run.json`,
-`model/history.json`, `evaluation/metrics.json`, and `protocol.json`.
-The protocol must supply `prior_experiment` (an earlier run directory with
-`model/run.json` and `evaluation/metrics.json`), `frames_by_split` with
-`train`/`validation`/`test` counts, and `test_reuse_note`. It verifies matching
-forecast settings and comparison support, then writes `comparison.json`,
-`comparison.csv`, `training_results.png`, `training_results.pdf`, and
-`SUMMARY.md`. The saved experiment inputs remain local.
-
-## CLI reference
-
-```powershell
-& $python -m surface_mapper --help
-& $python -m prediction --help
-& $python -m prediction train --help
-& $python -m prediction evaluate --help
-& $python -m prediction baseline-live --help
-& $python -m prediction baseline-evaluate --help
-& $python -m prediction.tds prepare --help
-& $python -m prediction.tds benchmark --help
-& $python -m prediction.tds_plot --help
-& $python -m prediction.tds_train_report --help
-```
-
-Prediction source, configuration examples, dependencies, tests, the MATLAB
-viewer, and this README are versioned. Virtual environments, recordings,
-downloaded datasets, checkpoints, temporary files, and generated experiment
-outputs remain local.
+Raw recordings, checkpoints, `output/` and `archive/` stay local and are excluded from Git.

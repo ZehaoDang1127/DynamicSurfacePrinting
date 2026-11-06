@@ -1,0 +1,223 @@
+\documentclass[11pt,letterpaper]{article}
+\usepackage[margin=0.85in]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage{amsmath,amssymb,booktabs}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\hypersetup{colorlinks=true,linkcolor=blue!45!black,urlcolor=blue!45!black,
+  pdftitle={Camera-to-Printer Frame Transformation}}
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{4pt}
+\setlength{\emergencystretch}{2em}
+\newcommand{\p}{\mathbf p}
+\newcommand{\R}{\mathbf R}
+\newcommand{\T}{\mathbf T}
+\newcommand{\tr}{\mathbf t}
+\newcommand{\K}{\mathbf K}
+\newcommand{\tp}{\mathsf T}
+
+\title{Camera-to-Printer Frame Transformation}
+\date{}
+
+\begin{document}
+\maketitle
+\vspace{-1.5em}
+
+\textbf{The idea.} Print four dots at known printer coordinates. Detect them
+in the camera image and calculate the camera pose. Reverse that transformation
+to convert predicted 3D surface points into printer coordinates. Then calculate
+the nozzle height along the desired path.
+
+\section{Overview}
+There are two operations:
+\[
+\underbrace{\text{Marker}\;\xrightarrow{\;\R,\tr\;}\;\text{Camera}}_
+ {\text{3D rotation and translation}}
+\quad\xrightarrow{\;\K\;\text{and depth division}\;}\quad
+\underbrace{\text{Image}}_{\text{2D pixels}}.
+\]
+Since we know each dot's printer XYZ, we can express those points directly in the
+printer frame, called $P$. The depth-camera frame is called $C$.
+
+The figure's focal lengths $F_x,F_y$ and image offsets $\delta_x,\delta_y$
+are written here as $f_x,f_y,c_x,c_y$. They form the intrinsic matrix
+\begin{equation}
+ \K=\begin{bmatrix}f_x&0&c_x\\0&f_y&c_y\\0&0&1\end{bmatrix}.
+\end{equation}
+These parameters and lens distortion must already be calibrated for the
+selected camera stream. The square is used to find the camera's rotation
+and position relative to the printer.
+
+\section{Print and identify the four reference points}
+For a square of side $L$ at surface height $Z_0$, the printer coordinates are
+\begin{equation}
+\begin{aligned}
+ \p^P_1&=(X_0,\;Y_0,\;Z_0)^\tp,\\
+ \p^P_2&=(X_0+L,\;Y_0,\;Z_0)^\tp,\\
+ \p^P_3&=(X_0+L,\;Y_0+L,\;Z_0)^\tp,\\
+ \p^P_4&=(X_0,\;Y_0+L,\;Z_0)^\tp.
+\end{aligned}
+\label{eq:square}
+\end{equation}
+Detect the corresponding image locations $(u_i,v_i)$, using the same dot
+labels. Keep the surface stationary during calibration. $Z_0$ must describe
+the observed feature's actual height; it is not automatically the nozzle Z
+used to print the dot. All XYZ values and translations below use millimetres.
+
+\section{Calculate printer-to-camera rotation and translation}
+Write the rotation and translation explicitly as
+\begin{equation}
+ \R=\begin{bmatrix}
+ r_{11}&r_{12}&r_{13}\\
+ r_{21}&r_{22}&r_{23}\\
+ r_{31}&r_{32}&r_{33}
+ \end{bmatrix},
+ \qquad
+ \tr=\begin{bmatrix}t_x\\t_y\\t_z\end{bmatrix}.
+\end{equation}
+The forward transformation is rotation followed by translation:
+\begin{equation}
+ \underbrace{\begin{bmatrix}x_C\\y_C\\z_C\end{bmatrix}}_{\p_C}
+ =
+ \underbrace{\begin{bmatrix}
+ r_{11}&r_{12}&r_{13}\\
+ r_{21}&r_{22}&r_{23}\\
+ r_{31}&r_{32}&r_{33}
+ \end{bmatrix}}_{\R}
+ \underbrace{\begin{bmatrix}X\\Y\\Z\end{bmatrix}}_{\p_P}
+ +\underbrace{\begin{bmatrix}t_x\\t_y\\t_z\end{bmatrix}}_{\tr}.
+ \label{eq:forward}
+\end{equation}
+Multiplying each row gives the three coordinate equations:
+\begin{equation}
+ \begin{aligned}
+ x_C&=r_{11}X+r_{12}Y+r_{13}Z+t_x,\\
+ y_C&=r_{21}X+r_{22}Y+r_{23}Z+t_y,\\
+ z_C&=r_{31}X+r_{32}Y+r_{33}Z+t_z.
+ \end{aligned}
+ \label{eq:forward-components}
+\end{equation}
+The camera projects this point into the image. For distortion-corrected
+pixels, the complete equation $z_C(u,v,1)^\tp=\K(\R\p_P+\tr)$ expands to
+\begin{equation}
+ \boxed{z_C\begin{bmatrix}u\\v\\1\end{bmatrix}
+ =
+ \begin{bmatrix}f_x&0&c_x\\0&f_y&c_y\\0&0&1\end{bmatrix}
+ \begin{bmatrix}
+ r_{11}&r_{12}&r_{13}&t_x\\
+ r_{21}&r_{22}&r_{23}&t_y\\
+ r_{31}&r_{32}&r_{33}&t_z
+ \end{bmatrix}
+ \begin{bmatrix}X\\Y\\Z\\1\end{bmatrix}.}
+ \label{eq:projection}
+\end{equation}
+Dividing by $z_C$ gives the pixel coordinates directly:
+\begin{equation}
+ \boxed{\begin{aligned}
+ u&=f_x\frac{r_{11}X+r_{12}Y+r_{13}Z+t_x}
+                 {r_{31}X+r_{32}Y+r_{33}Z+t_z}+c_x,\\[6pt]
+ v&=f_y\frac{r_{21}X+r_{22}Y+r_{23}Z+t_y}
+                 {r_{31}X+r_{32}Y+r_{33}Z+t_z}+c_y.
+ \end{aligned}}
+ \label{eq:pixel-components}
+\end{equation}
+For each reference point, substitute its known $X_i,Y_i,Z_i$ and compare
+the calculated pixels with the detected $u_i,v_i$. All four points share
+the same rotation and translation.
+The factor $z_C$ is essential: a 3D point must be divided by its depth to
+obtain a pixel location. A pixel alone does not determine a 3D point.
+
+Pass the four known printer points, their image locations, camera intrinsics,
+and distortion parameters to a PnP solver. OpenCV's \texttt{solvePnP} returns
+the rotation vector and translation from the supplied object frame to the
+camera frame~\cite{pnp}. Here that object frame is $P$:
+\begin{equation}
+ (\texttt{rvec},\texttt{tvec})
+ =\operatorname{solvePnP}\!\left(
+ \{\p_i^P\},\{(u_i,v_i)\},\K,\text{distortion}\right).
+\end{equation}
+Convert \texttt{rvec} into $\R$ using Rodrigues' formula; $\tr=\texttt{tvec}$.
+Use a planar solver appropriate for the point order. Check its pose against
+measured depth and the known camera orientation, because planar image data
+can admit competing poses. If dots are detected in a separate RGB camera,
+also use its calibrated relationship to the depth camera.
+
+\section{Reverse the transformation}
+For printing we need camera-to-printer coordinates. Rearranging
+Equation~\eqref{eq:forward} gives
+\begin{equation}
+ \boxed{\p_P=\R^\tp(\p_C-\tr).}
+ \label{eq:inverse}
+\end{equation}
+The transpose is the inverse of a rotation matrix. The camera-to-printer
+matrix, written entry by entry, is
+\begin{equation}
+ \boxed{\T_{P\leftarrow C}=
+ \begin{bmatrix}
+ r_{11}&r_{21}&r_{31}&-(r_{11}t_x+r_{21}t_y+r_{31}t_z)\\
+ r_{12}&r_{22}&r_{32}&-(r_{12}t_x+r_{22}t_y+r_{32}t_z)\\
+ r_{13}&r_{23}&r_{33}&-(r_{13}t_x+r_{23}t_y+r_{33}t_z)\\
+ 0&0&0&1
+ \end{bmatrix}.}
+ \label{eq:matrix}
+\end{equation}
+It acts on a camera point as
+\begin{equation}
+ \begin{bmatrix}X\\Y\\Z\\1\end{bmatrix}
+ =\T_{P\leftarrow C}\begin{bmatrix}x_C\\y_C\\z_C\\1\end{bmatrix}.
+\end{equation}
+Equivalently, the individual printer coordinates are
+\begin{equation}
+ \boxed{\begin{aligned}
+ X&=r_{11}(x_C-t_x)+r_{21}(y_C-t_y)+r_{31}(z_C-t_z),\\
+ Y&=r_{12}(x_C-t_x)+r_{22}(y_C-t_y)+r_{32}(z_C-t_z),\\
+ Z&=r_{13}(x_C-t_x)+r_{23}(y_C-t_y)+r_{33}(z_C-t_z).
+ \end{aligned}}
+ \label{eq:inverse-components}
+\end{equation}
+
+\newpage
+\section{Transform the predicted surface}
+The existing height map uses a metric camera XY grid. A valid predicted cell
+at row $i$, column $j$, and future time $t_a$ represents the 3D point
+\begin{equation}
+ \widehat\p_C(i,j;t_a)=
+ \begin{bmatrix}x_j\\y_i\\\widehat h_C(i,j;t_a)\end{bmatrix},
+ \quad
+ \begin{aligned}
+ x_j&=x_{\min}+(j+\tfrac12)\Delta,\\
+ y_i&=y_{\min}+(i+\tfrac12)\Delta,
+ \end{aligned}
+\end{equation}
+where $\Delta$ is the cell size and indices start at zero. Transform this
+complete point using the saved calibration:
+\begin{equation}
+ \boxed{\widehat\p_P(i,j;t_a)=
+ \R^\tp\!\left(
+ \begin{bmatrix}x_j\\y_i\\\widehat h_C(i,j;t_a)\end{bmatrix}-\tr\right).}
+ \label{eq:prediction}
+\end{equation}
+Here $x_j,y_i$ are already in millimetres, so no pixel deprojection is needed.
+Use absolute, unnormalized camera heights. If the model predicts a height
+change, add its reference height first.
+
+Transform X, Y, and Z together: with a tilted camera, changing camera depth
+can also change printer X and Y. The transformed points generally form an
+irregular XY grid. Interpolate or rasterize them onto a printer XY grid to
+obtain $\widehat h_P(X,Y;t_a)$, retaining invalid regions. This assumes the
+surface has one relevant height at each printer XY location.
+
+\section{Calculate the nozzle height}
+Choose the desired printer path points $(X_k,Y_k)$. Predict the surface for
+the time $t_k$ when the nozzle will reach each point. For vertical gap $g$,
+\begin{equation}
+ \boxed{Z_k=\widehat h_P(X_k,Y_k;t_k)+g,\qquad
+ \p_{\mathrm{nozzle},k}^P=\begin{bmatrix}X_k\\Y_k\\Z_k\end{bmatrix}.}
+ \label{eq:nozzle}
+\end{equation}
+
+\begin{thebibliography}{1}
+\bibitem{pnp} OpenCV, \emph{Perspective-n-Point (PnP) pose computation}.
+\url{https://docs.opencv.org/4.x/d5/d1f/calib3d_solvePnP.html}
+\end{thebibliography}
+\end{document}

@@ -1,0 +1,5 @@
+{
+  "train": ["../output/d405_train_01", "../output/d405_train_02"],
+  "validation": ["../output/d405_validation_01"],
+  "test": ["../output/d405_test_01"]
+}

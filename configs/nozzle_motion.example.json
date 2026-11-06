@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "coordinate_frame": "printer",
+  "start_xyz_mm": null,
+  "travel_z_mm": null,
+  "xy_speed_mm_s": 5.0,
+  "z_speed_mm_s": 1.0,
+  "dwell_s": 0.5,
+  "return_to_start": false,
+  "waypoints": [
+    {"id": "P1", "xyz_mm": null},
+    {"id": "P2", "xyz_mm": null},
+    {"id": "P3", "xyz_mm": null},
+    {"id": "P4", "xyz_mm": null}
+  ]
+}
