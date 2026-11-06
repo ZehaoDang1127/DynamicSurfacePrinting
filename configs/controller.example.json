@@ -1,0 +1,46 @@
+{
+  "schema_version": 1,
+  "units": "mm_s",
+  "measurement_frame": "printer_relative",
+  "height_reference": "relative",
+  "substrate_height_mm": null,
+  "geometry_id": "uncalibrated-example",
+  "grid": {
+    "x_min_mm": 100.0, "x_max_mm": 140.0,
+    "y_min_mm": 100.0, "y_max_mm": 140.0,
+    "cell_size_mm": 2.0,
+    "z_min_mm": -5.0, "z_max_mm": 5.0,
+    "min_points_per_cell": 1, "aggregation": "mean"
+  },
+  "desired_gap_mm": 5.0,
+  "allowed_gap_error_mm": 0.5,
+  "calibration_error_mm": 0.1,
+  "mechanical_error_mm": 0.1,
+  "timing_uncertainty_s": 0.01,
+  "footprint_radius_mm": 1.0,
+  "path_spacing_mm": 1.0,
+  "proposal_moves": 2,
+  "max_plan_iterations": 30,
+  "convergence_s": 0.0005,
+  "bead_area_mm2": 0.08,
+  "filament_diameter_mm": 1.75,
+  "limits": {
+    "xyz_min_mm": [0.0, 0.0, 0.0], "xyz_max_mm": [350.0, 350.0, 300.0],
+    "xy_speed_mm_s": 5.0, "xyz_speed_mm_s": 10.0, "z_speed_mm_s": 2.0,
+    "xy_accel_mm_s2": 50.0, "z_accel_mm_s2": 20.0,
+    "max_slope": 0.2, "max_flow_mm3_s": 2.0, "max_extrude_ratio": 0.3
+  },
+  "predictor": {
+    "kind": "constant_velocity", "history": 5,
+    "max_gap_s": 0.08, "max_frame_age_s": 0.1, "max_horizon_s": 1.0,
+    "forecast_error_mm": 0.1, "checkpoint": null, "device": "auto"
+  },
+  "hardware": {
+    "backend": "moonraker", "klipper_socket_path": null,
+    "moonraker_url": null, "api_key_env": "MOONRAKER_API_KEY", "request_timeout_s": 3.0,
+    "calibration_id": null, "camera_config_sha256": null, "expires_utc": null,
+    "stationary_fixture_verified": false, "stop_test_verified": false,
+    "exclusive_control_verified": false, "cold_clearance_mm": 5.0,
+    "fixture_top_z_mm": null, "max_cold_temperature_c": 45.0, "max_batch_s": 2.0
+  }
+}

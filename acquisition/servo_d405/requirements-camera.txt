@@ -1,0 +1,3 @@
+numpy>=2,<3
+Pillow>=11,<13
+pyrealsense2==2.59.1.11053

@@ -1,0 +1,21 @@
+{
+  "history": 5,
+  "horizon": 1,
+  "expected_dt_ms": 200.0,
+  "timing_tolerance": 0.2,
+  "min_valid_fraction": 0.1,
+  "age_scale_ms": 1000.0,
+  "occlusion_fraction": 0.20,
+  "occlusion_shape": "gaussian",
+  "base_channels": 16,
+  "kernel_size": 3,
+  "batch_size": 8,
+  "learning_rate": 0.001,
+  "epochs": 30,
+  "patience": 6,
+  "grad_clip": 1.0,
+  "hidden_weight": 2.0,
+  "seed": 42,
+  "cache_frames": true,
+  "train_window_stride": 2
+}

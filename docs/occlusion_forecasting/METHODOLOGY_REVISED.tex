@@ -1,0 +1,136 @@
+\section{Methodology}
+This study developed and evaluated a framework for observing a deforming surface, forecasting its future height, 
+and generating nozzle trajectories referenced to the predicted surface. The work comprised depth acquisition, 
+camera calibration and coordinate registration, offline surface forecasting, virtual trajectory evaluation, 
+and live camera-to-planner integration. A stationary deposition trial was also prepared to investigate material delivery 
+on the selected substrate. Continuous predictive deposition on a moving surface had not been experimentally validated at this stage.
+
+\subsection{Theoretical Background}
+The receiving surface was represented as a time-dependent height field,
+\begin{equation}
+    z = S(x,y,t),
+\end{equation}
+where $S(x,y,t)$ denotes the surface height at planar location $(x,y)$ and time $t$. This representation assumes that each planar 
+location corresponds to a single visible surface height. Its application to deposition was restricted to predominantly vertical 
+deformation, gentle local slopes, and negligible lateral material motion. Overhangs and substantial lateral displacement were outside the initial formulation. Occluded regions were addressed separately by the synthetic-occlusion experiment described below.
+
+Depth measurements were converted into three-dimensional camera coordinates using the corresponding stream intrinsics. 
+For an undistorted pinhole observation with depth $d$ at pixel coordinates $(u,v)$,
+\begin{equation}
+    \mathbf{p}_{c} =
+    \begin{bmatrix}
+        (u-c_x)d/f_x \\
+        (v-c_y)d/f_y \\
+        d
+    \end{bmatrix},
+\end{equation}
+where $f_x$ and $f_y$ are the focal lengths and $(c_x,c_y)$ is the principal point. RealSense point-cloud generation used 
+the device SDK to account for the stream's camera model. SDK coordinates were converted from metres to millimetres 
+before subsequent processing.
+
+For printer-referenced observations, camera points were transformed according to
+\begin{equation}
+    \mathbf{p}_{p} = \mathbf{R}_{pc}\mathbf{p}_{c}+\mathbf{t}_{pc},
+\end{equation}
+where $\mathbf{R}_{pc}$ and $\mathbf{t}_{pc}$ describe the camera-to-printer rigid transformation. Transformed points were aggregated 
+onto a regular printer-XY grid, with each supported cell storing the mean printer-Z coordinate, a validity indicator, 
+and its supporting point count. When no printer registration was applied, the same procedure produced camera-coordinate maps 
+whose heights represented camera-axis depth.
+
+The desired nozzle position depended on the surface height at the time of deposition:
+\begin{equation}
+    z_k = \widehat{S}(x_k,y_k,t_k^{\mathrm{arrival}})+g,
+\end{equation}
+where $(x_k,y_k)$ is a planned deposition location, $\widehat{S}$ is the predicted surface height, and $g$ is the prescribed vertical 
+nozzle-to-surface gap. For relative-displacement maps, a separately measured substrate datum must also be added. 
+Maps already expressed as absolute printer Z require no additional datum.
+
+The required prediction horizon was defined as
+\begin{equation}
+    \tau_k = t_k^{\mathrm{arrival}}-t^{\mathrm{observation}}.
+\end{equation}
+This horizon includes observation age, processing and communication delays, queued motion, and travel to the deposition location. 
+Forecasting and trajectory planning were therefore treated as coupled operations, because changing the predicted nozzle height 
+can change the motion duration and arrival time.
+
+\subsection{Part and Toolpath Design}
+The physical receiving substrate was a suspended, tensioned PETG sheet with a nominal thickness of 0.02~inch, equivalent to 0.508~mm. 
+PLA was selected as the deposition material. Initial geometries consisted of localized registration marks and straight deposition lines, 
+allowing coordinate alignment and material delivery to be investigated before introducing more complex patterns.
+
+Four visible reference marks were used for camera-to-printer registration. Their measured printer coordinates occupied an approximately 
+$50 \times 35$~mm region. Actual marker centres and heights were used as reference data; commanded extrusion locations were not assumed 
+to coincide exactly with the resulting physical marks.
+
+
+
+\subsection{Experimental Setup and Depth Acquisition}
+The hardware architecture combined an Intel RealSense D405, a Raspberry Pi 5 for acquisition and control processing, 
+and a Sovol SV08 printer. The existing printer host retained Moonraker and Klipper, with the external controller communicating 
+through Moonraker. A wired Ethernet connection was selected for the Pi-to-printer link. Model training and local integration checks 
+were performed on the development workstation.
+
+The camera was maintained in a fixed pose relative to the printer and substrate during registration and subsequent observation. 
+For the initial acquisition and integration workflow, depth acquisition used $640 \times 480$ images at a rate of 30 frames per second. Thirty warm-up frames were discarded 
+before recording. Saved observations included height maps, validity masks, point counts, camera timestamps, 
+and host monotonic timestamps. Raw depth was retained in selected recordings. The separate servo-driven recordings used in the occlusion experiment were acquired at a nominal 5 frames per second, as described below.
+
+
+\subsection{Camera Calibration and Coordinate Registration}
+Camera intrinsics were estimated with the OpenCV camera calibration procedure. The target checkerboard contained 
+$9 \times 6$ inner corners with a confirmed square size of 25~mm. OpenCV calibration estimated focal lengths, principal point, 
+and five distortion coefficients. A single-pass reprojection-error screen excluded one of the 25 images, leaving 24 views 
+for the final fit. Leave-one-view-out refitting assessed consistency across the retained views.
+
+Four measured marker coordinates and their corresponding raw color-image locations were then used to estimate the camera pose 
+relative to the printer. The supplied printer coordinates were
+\begin{equation}
+    \begin{aligned}
+        \mathbf{P}_1 &= (205.0,\;65.0,\;149.7), \\
+        \mathbf{P}_2 &= (155.0,\;66.5,\;149.7), \\
+        \mathbf{P}_3 &= (156.0,\;100.0,\;150.4), \\
+        \mathbf{P}_4 &= (204.0,\;99.5,\;150.4),
+    \end{aligned}
+\end{equation}
+with all coordinates expressed in millimeters. 
+
+Color-to-printer registration and depth-to-color registration were treated as separate transformations. 
+In homogeneous coordinates, their composition was
+\begin{equation}
+    \mathbf{T}_{P \leftarrow D}
+    = \mathbf{T}_{P \leftarrow C}\mathbf{T}_{C \leftarrow D},
+\end{equation}
+where $D$, $C$, and $P$ denote the depth-camera, color-camera, and printer frames. Factory depth-to-color extrinsics were obtained 
+from the same D405, with translation converted to millimeters.
+
+
+\subsection{ConvLSTM for Dynamic Surface Prediction}
+Learned forecasting used the rectangular-cloth subset of the EPFL Texture-less Deformable Surfaces Dataset. The subset contained 
+18 sequences and 15,799 depth frames, acquired using a Microsoft Kinect at a published cadence of 5 frames per second. 
+Supplied depth images had a resolution of $224 \times 224$ pixels. Since measured acquisition timestamps were not available, 
+nominal times were assigned from the original frame indices and published cadence.
+
+Depth maps were unprojected using the supplied intrinsics and aggregated onto a $32 \times 32$ camera-coordinate grid. 
+The grid covered $640 \times 640$~mm with 20~mm cells and accepted depths from 400 to 2000~mm. 
+Each valid cell required at least three accepted points. No additional hole filling or temporal smoothing was applied.
+
+Complete sequences were assigned to partitions before temporal windows were constructed. Training contained 12 sequences 
+and 11,065 frames; validation contained three sequences and 2,003 frames; testing contained three sequences and 2,731 frames. 
+The consecutive \texttt{Lc\_top\_edge\_a} and \texttt{Lc\_top\_edge\_b} segments remained together in validation. 
+The test sequences were \texttt{Lc\_left\_edge}, \texttt{Ld\_bottom\_edge}, and \texttt{Lr\_top\_edge\_2}. 
+Windows crossing missing frame indices were excluded.
+
+\subsection{Occlusion-Aware Surface Reconstruction and Forecasting}
+A separate experiment investigated whether a model could reconstruct surface depth when part of the input was hidden. The experiment used 20 verified servo-driven D405 recordings containing 3,023 paired color and depth frames. The recordings were acquired at a nominal rate of 5 frames per second and a resolution of $640 \times 480$ pixels, with approximately 30~s per motion pattern. Native depth and color frames were saved without alignment; recorded depth-camera intrinsics, depth scale, camera timestamps, and host monotonic timestamps were retained. The servo labels represented commanded positions and were not exposure-synchronized measurements of the actual servo angle.
+
+Native depth values were converted to millimeters using the recorded depth scale, approximately 0.1~mm per unit. Zero depth values were treated as invalid. To select a conservative central portion of the surface, depth pixels were restricted to $245 \leq u < 420$ and $205 \leq v < 315$, and camera-axis depths were restricted to 230--450~mm. The selected depth pixels were unprojected using the depth-stream intrinsics and aggregated by mean depth onto a $23 \times 45$ camera-XY grid with 4~mm cells; each valid cell contained at least one accepted point. The resulting maps describe camera-axis depth, not height in the printer coordinate system. The image crop and depth gate were scene-specific approximations rather than verified surface segmentation and did not include the entire substrate.
+
+Complete motion-pattern recordings were assigned to partitions before temporal windows were generated. Sixteen recordings were used for training, two for validation, and two for testing. Validation used the two-frequency and damped-oscillation recordings, and testing used the stop-start and biased-oscillation recordings. The recordings shared the same experimental setup and surface; the test partition therefore evaluated held-out motions in that setup. Overlapping training windows used a starting-frame stride of two, whereas validation and test windows used a stride of one. A window contained five input frames and a target one frame beyond the final input, corresponding nominally to a 200~ms forecast horizon. Windows with intervals outside a $\pm20\%$ tolerance of 200~ms or inadequate valid coverage were excluded.
+
+Synthetic occlusion was applied only to copies of the input histories. For each window, an anisotropic Gaussian was constructed on the grid with a randomly selected orientation and aspect ratio. The 20\% of grid cells with the highest Gaussian values formed a binary mask, and its center moved across the five input frames, reflecting at grid boundaries. Thus, nearby cells were blocked together, while the Gaussian values themselves did not replace or blur the measured depths. The mask size was specified relative to the entire grid, so its overlap with valid surface cells could vary. The original valid measurements provided the current and future reference targets; naturally invalid measurements were excluded from supervision. Masks were deterministic for a given seed, session path, and window, with separate seeds for training, validation, and testing.
+
+The occlusion-aware model combined a U-Net encoder--decoder with convolutional long short-term memory (ConvLSTM) cells. Each input frame contained four channels: normalized observed depth, a binary observation mask, time since the cell was last observed within the input window, and an indicator for cells not previously observed in that window. Observation age was capped and normalized using a 1,000~ms scale; missing values were represented by finite placeholders. Depth normalization used the mean and standard deviation of valid training measurements only. The encoder extracted spatial features at multiple resolutions, while recurrent dynamics and correction cells updated the latent state over the input sequence. Decoder skip features came from the latest input frame containing observations. The decoder first estimated the current surface map; the latent state was then advanced without a new observation to produce the next-frame forecast.
+
+Training minimized a weighted sum of mean absolute errors over valid current targets, valid future targets, and target-valid cells hidden at the final input frame. The hidden-region term included both current and future predictions and received a weight of 2. The network used 16 base channels, a $3 \times 3$ recurrent kernel, a batch size of eight, and the Adam optimizer with a learning rate of 0.001. Training was limited to 30 epochs with early stopping after six epochs without improvement in the validation objective; the checkpoint with the lowest validation objective was retained.
+
+Held-out evaluation used the unmasked recorded measurements as reference and reported mean absolute error and root-mean-square error separately for current reconstruction and the 200~ms forecast. Errors were also grouped by whether a cell was visible or unobserved at the input origin; the unobserved region included natural missing cells as well as synthetic masking. A last-observation baseline carried forward the most recent valid value within the input history. Because this baseline could not predict a cell never observed in the window, its errors were compared with model errors on the same supported cells; model errors were additionally reported over all unobserved cells with valid targets. The test windows overlapped in time and were not independent trials. This experiment evaluated synthetic missing observations and did not establish performance behind an actual nozzle, where tool depth returns, shadows, and other sensor artifacts may be present. The model did not segment the nozzle, and its camera-coordinate predictions were not used for physical deposition.

@@ -1,5 +1,13 @@
 # Predictive printing on a dynamically deforming surface
 
+**Research direction updated — 31 October 2026:** The active plan is now
+[occlusion-aware surface estimation and autoregressive forecasting](../occlusion_forecasting/OCCLUSION_AWARE_FORECASTING_PLAN.md).
+It replaces the simple whole-surface ConvLSTM proposal below with explicit
+visibility modelling, realistic masked-sequence training, temporal state
+estimation, and hidden-region/toolpath evaluation. The remainder of this file
+is the historical September outline; its geometry, timing, and experimental
+considerations remain useful, but its model choice is superseded.
+
 Project outline — 20 September 2026
 
 **Objective:** Use a RealSense D405 to observe a moving surface, predict its future height with ConvLSTM, and adapt a Sovol SV08 trajectory to maintain the intended nozzle-to-surface gap during deposition. Demonstrate improvement in printed bead quality against matched nonpredictive baselines.
