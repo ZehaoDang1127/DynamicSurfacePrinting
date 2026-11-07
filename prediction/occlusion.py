@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import argparse
 from datetime import datetime, timezone
+import hashlib
 import json
 import math
 from pathlib import Path
@@ -143,7 +144,12 @@ def _epoch(model, loader, device, config, scale, optimizer=None):
     return result
 
 
-def train(split_path, config, output_dir, device='auto'):
+def train(split_path, config, output_dir, device='auto', initialize_from=None):
+    """Train on session-level splits; optionally start from pretrained weights.
+
+    ``initialize_from`` copies model weights only. Normalization is always fitted
+    on the target training sessions and the optimizer starts fresh.
+    """
     config = read_config(config)
     output = Path(output_dir).resolve()
     if output.exists() and (not output.is_dir() or any(output.iterdir())):
@@ -167,7 +173,9 @@ def train(split_path, config, output_dir, device='auto'):
                                 generator=generator if name == 'train' else None,
                                 num_workers=0, collate_fn=_collate)
                for name, dataset in datasets.items()}
-    model = _model(config).to(device)
+    model = _model(config)
+    initialization = None if initialize_from is None else _initialize_weights(model, config, initialize_from)
+    model = model.to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=config['learning_rate'])
     output = prepare_output(output)
     provenance = {f'{name}_sessions': [str(s.path.resolve()) for s in splits[name]]
@@ -176,6 +184,8 @@ def train(split_path, config, output_dir, device='auto'):
                   'config': config, 'normalization': normalization.to_dict(),
                   'geometry': splits['train'][0].geometry, 'shape': list(splits['train'][0].shape),
                   'split_path': str(Path(split_path).resolve()), **provenance}
+    if initialization is not None:
+        checkpoint['initialization'] = initialization
     metadata = {**checkpoint, 'status': 'running', 'started_utc': datetime.now(timezone.utc).isoformat(),
                 'device': str(device), 'dataset_summaries': {k: d.summary() for k, d in datasets.items()},
                 'test_evaluated': False, 'checkpoint': str(output / 'best.pt')}
@@ -209,6 +219,29 @@ def train(split_path, config, output_dir, device='auto'):
         metadata['finished_utc'] = datetime.now(timezone.utc).isoformat()
         write_json(output / 'run.json', metadata)
     return metadata
+
+
+def _initialize_weights(model, config, path):
+    """Copy weights from a compatible occlusion checkpoint and record their source.
+
+    Only ``base_channels`` and ``kernel_size`` determine parameter shapes; history,
+    horizon, frame rate, grid size and geometry may differ between source and target.
+    Pretraining provides an initialization only and does not qualify the source
+    task or geometry for the target setup.
+    """
+    source_path = Path(path).expanduser().resolve()
+    source_sha256 = hashlib.sha256(source_path.read_bytes()).hexdigest()
+    source_model, source_config, _, source = load_checkpoint(source_path, 'cpu')
+    differing = [k for k in ('base_channels', 'kernel_size') if source_config[k] != config[k]]
+    if differing:
+        raise ValueError('initialization architecture differs from target: ' + ', '.join(differing))
+    model.load_state_dict(source_model.state_dict(), strict=True)
+    return {'kind': 'pretrained_weights_only', 'source_checkpoint': str(source_path),
+            'source_sha256': source_sha256, 'source_epoch': source.get('epoch'),
+            'source_config': source_config, 'source_geometry': source['geometry'],
+            'source_shape': list(source['shape']), 'source_train_sessions': source['train_sessions'],
+            'optimizer_state_transferred': False,
+            'normalization': 'fitted exclusively on target training sessions'}
 
 
 def load_checkpoint(path, device='auto'):
@@ -325,6 +358,8 @@ def main(argv=None):
     fit.add_argument('--config', required=True, type=Path, help='JSON object; omitted fields use defaults')
     fit.add_argument('--output', required=True, type=Path)
     fit.add_argument('--device', default='auto')
+    fit.add_argument('--initialize-from', type=Path, default=None,
+                     help='occlusion checkpoint whose weights initialize training (fine-tuning)')
     score = sub.add_parser('evaluate', help='score current and future predictions against observed targets')
     score.add_argument('--checkpoint', required=True, type=Path)
     score.add_argument('--splits', required=True, type=Path)
@@ -336,7 +371,7 @@ def main(argv=None):
     args = parser.parse_args(argv)
     if args.command == 'train':
         config = json.loads(args.config.read_text(encoding='utf-8-sig'))
-        result = train(args.splits, config, args.output, args.device)
+        result = train(args.splits, config, args.output, args.device, args.initialize_from)
     elif args.command == 'evaluate':
         result = evaluate(args.checkpoint, args.splits, args.output, args.split, args.device)
     else:
