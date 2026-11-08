@@ -1,4 +1,4 @@
-# Dynamic Surface Printer
+# Occlusion-Aware Forecasting of Dynamic Surface Towards Autonomous Material Extrusion (Pending NAMRC 55)
 
 Occlusion-aware surface estimation and forecasting for printing on a moving surface.
 A RealSense D405 observes a deforming surface. Depth inside a fixed region of interest
