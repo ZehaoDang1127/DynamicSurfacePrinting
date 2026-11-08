@@ -124,6 +124,34 @@ class OcclusionPipelineTests(unittest.TestCase):
                 occlusion._initialize_weights(occlusion._model(occlusion.read_config({**self.config, 'base_channels': 4})),
                                               occlusion.read_config({**self.config, 'base_channels': 4}), source_path)
 
+    def test_evaluation_mask_override_replaces_only_mask_settings(self):
+        import json
+        from prediction import occlusion
+        seen = []
+
+        def dataset(sessions, config, normalization, seed, **kwargs):
+            seen.append(config)
+            return self.dataset(sessions, config, normalization, seed, **kwargs)
+
+        with patch.object(occlusion, 'load_splits', return_value=self.splits), \
+             patch.object(occlusion, 'fit_normalization', return_value=self.normalization), \
+             patch.object(occlusion, 'OcclusionDataset', side_effect=dataset):
+            occlusion.train(self.root / 'splits.json', {**self.config, 'occlusion_shape': 'gaussian'},
+                            self.root / 'run', 'cpu')
+            masks = self.root / 'masks.json'
+            masks.write_text(json.dumps({'occlusion_shape': 'large', 'large_occlusion_fraction_range': [0.7, 0.9],
+                                         'large_occlusion_stationary_probability': 1.0}))
+            report = occlusion.evaluate(self.root / 'run/best.pt', self.root / 'splits.json',
+                                        self.root / 'evaluation', 'test', 'cpu', masks)
+            self.assertEqual(seen[-1]['occlusion_shape'], 'large')
+            self.assertEqual(seen[-1]['history'], self.config['history'])
+            self.assertEqual(report['evaluation_masks']['large_occlusion_fraction_range'], [0.7, 0.9])
+            self.assertEqual(report['config']['occlusion_shape'], 'gaussian')
+            masks.write_text(json.dumps({'history': 5}))
+            with self.assertRaisesRegex(ValueError, 'may only set'):
+                occlusion.evaluate(self.root / 'run/best.pt', self.root / 'splits.json',
+                                   self.root / 'evaluation2', 'test', 'cpu', masks)
+
     def test_loss_skips_empty_hidden_region_and_rejects_nonfinite_valid(self):
         from prediction.occlusion import _loss_terms
         predicted = torch.zeros((1, 2, 1, 2, 2), requires_grad=True)

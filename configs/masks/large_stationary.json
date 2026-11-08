@@ -1,0 +1,10 @@
+{
+  "occlusion_shape": "large",
+  "occlusion_fraction": 0.2,
+  "gaussian_step_interval": 6,
+  "large_occlusion_fraction_range": [
+    0.7,
+    0.9
+  ],
+  "large_occlusion_stationary_probability": 1.0
+}

@@ -40,11 +40,40 @@ def _settings(config: dict, seed: int) -> dict:
     if not 0 <= values['occlusion_fraction'] <= 1:
         raise ValueError('occlusion_fraction must be in [0, 1]')
     values['occlusion_shape'] = config.get('occlusion_shape', 'rectangle')
-    if values['occlusion_shape'] not in ('rectangle', 'gaussian'):
-        raise ValueError('occlusion_shape must be rectangle or gaussian')
+    if values['occlusion_shape'] not in OCCLUSION_SHAPES:
+        raise ValueError('occlusion_shape must be one of ' + ', '.join(OCCLUSION_SHAPES))
     values['gaussian_step_interval'] = config.get('gaussian_step_interval', 1)
     if type(values['gaussian_step_interval']) is not int or values['gaussian_step_interval'] < 1:
         raise ValueError('gaussian_step_interval must be a positive integer')
+    values.update(validate_large_occlusion(config))
+    return values
+
+
+OCCLUSION_SHAPES = ('rectangle', 'gaussian', 'mixed', 'large')
+LARGE_OCCLUSION_DEFAULTS = {
+    'large_occlusion_probability': .5,
+    'large_occlusion_fraction_range': [.4, .9],
+    'large_occlusion_stationary_probability': .5,
+}
+
+
+def validate_large_occlusion(config: dict) -> dict:
+    """Validate settings for large (head-scale) synthetic occluders.
+
+    Used by ``mixed`` (a large occluder with ``large_occlusion_probability``,
+    otherwise the standard moving Gaussian) and ``large`` (always large).
+    """
+    values = {key: config.get(key, default) for key, default in LARGE_OCCLUSION_DEFAULTS.items()}
+    for key in ('large_occlusion_probability', 'large_occlusion_stationary_probability'):
+        value = values[key]
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or not 0 <= value <= 1:
+            raise ValueError(f'{key} must be a number in [0, 1]')
+    bounds = values['large_occlusion_fraction_range']
+    if (not isinstance(bounds, (list, tuple)) or len(bounds) != 2
+            or any(isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v) for v in bounds)
+            or not 0 < bounds[0] <= bounds[1] < 1):
+        raise ValueError('large_occlusion_fraction_range must be [low, high] with 0 < low <= high < 1')
+    values['large_occlusion_fraction_range'] = [float(bounds[0]), float(bounds[1])]
     return values
 
 
@@ -81,13 +110,15 @@ def _masks(shape: tuple[int, int], count: int, fraction: float, rng: np.random.G
 
 
 def _gaussian_masks(shape: tuple[int, int], count: int, fraction: float,
-                    rng: np.random.Generator, step_interval: int = 1) -> np.ndarray:
+                    rng: np.random.Generator, step_interval: int = 1,
+                    stationary: bool = False) -> np.ndarray:
     """Threshold a moving, anisotropic Gaussian to form a binary occluder.
 
     The largest Gaussian values are selected so each frame masks approximately
     the requested fraction, including when the contour touches a grid edge.
     Its centre moves by at most one cell per axis per frame and reflects at
     boundaries every `step_interval` frames; its orientation and aspect ratio stay fixed within the window.
+    With ``stationary`` the centre does not move, as for a print head held in place.
     This is a synthetic silhouette, not a measured nozzle profile.
     """
     height, width = shape
@@ -101,6 +132,8 @@ def _gaussian_masks(shape: tuple[int, int], count: int, fraction: float,
     center = [int(rng.integers(height)), int(rng.integers(width))]
     velocity = [int(rng.choice((-1, 0, 1))) if limit > 1 else 0
                 for limit in shape]
+    if stationary:
+        velocity = [0, 0]
     theta = rng.uniform(0, np.pi)
     aspect = rng.uniform(.6, 1.7)
     ys, xs = np.indices(shape, dtype=np.float64)
@@ -219,7 +252,15 @@ class OcclusionDataset:
         identity = f'{self.seed}\0{session.path}\0{start}'.encode('utf-8')
         mask_seed = int.from_bytes(hashlib.sha256(identity).digest()[:8], 'little')
         rng = np.random.default_rng(mask_seed)
-        if self.config['occlusion_shape'] == 'gaussian':
+        shape = self.config['occlusion_shape']
+        if shape in ('mixed', 'large') and (
+                shape == 'large' or rng.random() < self.config['large_occlusion_probability']):
+            low, high = self.config['large_occlusion_fraction_range']
+            fraction = float(rng.uniform(low, high))
+            stationary = bool(rng.random() < self.config['large_occlusion_stationary_probability'])
+            masks = _gaussian_masks(session.shape, history, fraction, rng,
+                                    self.config['gaussian_step_interval'], stationary)
+        elif shape in ('gaussian', 'mixed'):
             masks = _gaussian_masks(session.shape, history, self.config['occlusion_fraction'], rng,
                                     self.config['gaussian_step_interval'])
         else:
@@ -257,4 +298,5 @@ class OcclusionDataset:
                 'seed': self.seed, 'occlusion_fraction': self.config['occlusion_fraction'],
                 'occlusion_shape': self.config['occlusion_shape'],
                 'gaussian_step_interval': self.config['gaussian_step_interval'],
+                **{key: self.config[key] for key in LARGE_OCCLUSION_DEFAULTS},
                 'window_stride': self.window_stride, 'cache_frames': self._frame_cache is not None}

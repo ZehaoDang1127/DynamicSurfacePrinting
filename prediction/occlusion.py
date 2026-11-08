@@ -20,7 +20,8 @@ from torch.utils.data import DataLoader
 from .artifacts import prepare_output, write_json
 from .data import Normalization, fit_normalization, load_splits
 from .metrics import ErrorStats
-from .occlusion_data import OcclusionDataset
+from .occlusion_data import (LARGE_OCCLUSION_DEFAULTS, OCCLUSION_SHAPES, OcclusionDataset,
+                             validate_large_occlusion)
 from .occlusion_model import OcclusionUNetConvLSTM
 from .training import resolve_device, _save_checkpoint
 
@@ -29,7 +30,7 @@ DEFAULT_CONFIG = {
     'history': 10, 'horizon': 4, 'expected_dt_ms': 1000 / 30,
     'timing_tolerance': .2, 'min_valid_fraction': .1,
     'age_scale_ms': 1000., 'occlusion_fraction': .25, 'occlusion_shape': 'rectangle',
-    'gaussian_step_interval': 1,
+    'gaussian_step_interval': 1, **LARGE_OCCLUSION_DEFAULTS,
     'base_channels': 16, 'kernel_size': 3, 'epochs': 30, 'patience': 5,
     'batch_size': 4, 'learning_rate': .001, 'grad_clip': 1.,
     'hidden_weight': 1., 'seed': 42, 'cache_frames': False, 'train_window_stride': 1,
@@ -68,8 +69,9 @@ def read_config(value: dict) -> dict:
         raise ValueError('min_valid_fraction must be in (0, 1]')
     if not 0 <= config['occlusion_fraction'] <= 1:
         raise ValueError('occlusion_fraction must be in [0, 1]')
-    if config['occlusion_shape'] not in ('rectangle', 'gaussian'):
-        raise ValueError('occlusion_shape must be rectangle or gaussian')
+    if config['occlusion_shape'] not in OCCLUSION_SHAPES:
+        raise ValueError('occlusion_shape must be one of ' + ', '.join(OCCLUSION_SHAPES))
+    config.update(validate_large_occlusion(config))
     if config['hidden_weight'] < 0:
         raise ValueError('hidden_weight must be nonnegative')
     return config
@@ -269,10 +271,35 @@ def load_checkpoint(path, device='auto'):
     return model.to(device).eval(), config, normalization, checkpoint
 
 
-def evaluate(checkpoint_path, split_path, output_dir, split='test', device='auto'):
+MASK_KEYS = ('occlusion_shape', 'occlusion_fraction', 'gaussian_step_interval', *LARGE_OCCLUSION_DEFAULTS)
+
+
+def read_mask_config(path):
+    """Read a JSON object that replaces the checkpoint's synthetic-mask settings for evaluation."""
+    if path is None:
+        return None
+    overrides = json.loads(Path(path).read_text(encoding='utf-8-sig'))
+    if not isinstance(overrides, dict) or not overrides:
+        raise ValueError('mask configuration must be a nonempty JSON object')
+    unknown = set(overrides) - set(MASK_KEYS)
+    if unknown:
+        raise ValueError('mask configuration may only set ' + ', '.join(MASK_KEYS)
+                         + '; unknown: ' + ', '.join(sorted(unknown)))
+    return overrides
+
+
+def evaluate(checkpoint_path, split_path, output_dir, split='test', device='auto', mask_config=None):
+    """Score a checkpoint on one split.
+
+    ``mask_config`` (path to a JSON object) replaces only the synthetic-mask
+    settings, so models trained with different masks can be compared under the
+    same test masks. Window selection and the mask seed are unchanged.
+    """
     if split not in ('train', 'validation', 'test'):
         raise ValueError('split must be train, validation or test')
     model, config, normalization, checkpoint = load_checkpoint(checkpoint_path, device)
+    mask_overrides = read_mask_config(mask_config)
+    evaluation_config = read_config({**config, **(mask_overrides or {})})
     splits = load_splits(split_path)
     sessions = splits[split]
     if any(s.geometry != checkpoint['geometry'] or list(s.shape) != list(checkpoint['shape']) for s in sessions):
@@ -283,7 +310,7 @@ def evaluate(checkpoint_path, split_path, output_dir, split='test', device='auto
     if split != 'train' and any(s.path.resolve() in forbidden for s in sessions):
         raise ValueError('held-out evaluation overlaps checkpoint training/validation sessions')
     seed = config['seed'] + {'train': 0, 'validation': 1, 'test': 2}[split]
-    dataset = OcclusionDataset(sessions, config, normalization, seed=seed,
+    dataset = OcclusionDataset(sessions, evaluation_config, normalization, seed=seed,
                                cache_frames=config['cache_frames'], window_stride=1)
     if not len(dataset):
         raise ValueError('no eligible evaluation windows')
@@ -340,7 +367,9 @@ def evaluate(checkpoint_path, split_path, output_dir, split='test', device='auto
     report = {'schema_version': 1, 'checkpoint': str(Path(checkpoint_path).resolve()),
               'split': split, 'split_path': str(Path(split_path).resolve()), 'config': config,
               'geometry': checkpoint['geometry'], 'windows': len(dataset), 'dataset_summary': dataset.summary(),
-              'mask_seed': seed, 'leads': results,
+              'mask_seed': seed, 'mask_override': mask_overrides,
+              'evaluation_masks': {key: evaluation_config[key] for key in MASK_KEYS},
+              'leads': results,
               'notes': ['Hidden and visible regions are defined by observed validity at the current input frame, including natural missing cells.',
                         'Lead times are nominal; actual timestamps may vary within the configured timing tolerance.',
                         'Ground truth exists only at valid recorded pixels.',
@@ -366,6 +395,8 @@ def main(argv=None):
     score.add_argument('--output', required=True, type=Path)
     score.add_argument('--split', choices=('train', 'validation', 'test'), default='test')
     score.add_argument('--device', default='auto')
+    score.add_argument('--mask-config', type=Path, default=None,
+                       help='JSON object replacing the synthetic-mask settings for this evaluation')
     inspect = sub.add_parser('inspect', help='show checkpoint metadata (no model weights)')
     inspect.add_argument('--checkpoint', required=True, type=Path)
     args = parser.parse_args(argv)
@@ -373,7 +404,7 @@ def main(argv=None):
         config = json.loads(args.config.read_text(encoding='utf-8-sig'))
         result = train(args.splits, config, args.output, args.device, args.initialize_from)
     elif args.command == 'evaluate':
-        result = evaluate(args.checkpoint, args.splits, args.output, args.split, args.device)
+        result = evaluate(args.checkpoint, args.splits, args.output, args.split, args.device, args.mask_config)
     else:
         _, _, _, checkpoint = load_checkpoint(args.checkpoint, 'cpu')
         result = {key: value for key, value in checkpoint.items() if key != 'state_dict'}

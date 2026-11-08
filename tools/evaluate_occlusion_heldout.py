@@ -16,7 +16,7 @@ from prediction import occlusion
 from prediction.data import load_session
 
 
-def evaluate(checkpoint, split_path, output, device='auto'):
+def evaluate(checkpoint, split_path, output, device='auto', mask_config=None):
     split_path = Path(split_path).resolve()
     _, _, _, ckpt = occlusion.load_checkpoint(checkpoint, 'cpu')
     if Path(ckpt['split_path']).resolve() != split_path:
@@ -37,7 +37,7 @@ def evaluate(checkpoint, split_path, output, device='auto'):
         raise ValueError('duplicate session in split')
     sessions = [load_session(path) for path in resolved['test']]
     with patch.object(occlusion, 'load_splits', return_value={'test': sessions}):
-        return occlusion.evaluate(checkpoint, split_path, output, 'test', device)
+        return occlusion.evaluate(checkpoint, split_path, output, 'test', device, mask_config)
 
 
 if __name__ == '__main__':
@@ -46,7 +46,9 @@ if __name__ == '__main__':
     parser.add_argument('--splits', required=True, type=Path)
     parser.add_argument('--output', required=True, type=Path)
     parser.add_argument('--device', default='auto')
+    parser.add_argument('--mask-config', type=Path, default=None,
+                        help='JSON object replacing the synthetic-mask settings (e.g. configs/masks/*.json)')
     args = parser.parse_args()
-    result = evaluate(args.checkpoint, args.splits, args.output, args.device)
+    result = evaluate(args.checkpoint, args.splits, args.output, args.device, args.mask_config)
     print(json.dumps({'windows': result['windows'], 'mask_seed': result['mask_seed'],
                       'output': str(args.output)}, indent=2))
