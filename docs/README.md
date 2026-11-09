@@ -2,7 +2,7 @@
 
 | Folder | Contents |
 | --- | --- |
-| [`occlusion_forecasting/`](occlusion_forecasting/) | **Main line.** Research plan, ConvLSTM + U-Net pipeline guide, real-head repeat evaluation, recording protocol, revised methodology (LaTeX) |
+| [`occlusion_forecasting/`](occlusion_forecasting/) | **Main line.** Research plan, ConvLSTM + U-Net pipeline guide, 100-epoch / cloth-pretraining / mixed-mask training guide and results, real-head repeat evaluation, recording protocol, the paper's Methodology and Results sections (LaTeX, 8 Nov) |
 | [`geometry_calibration/`](geometry_calibration/) | Camera intrinsics/PnP and camera-to-printer workflow; frame-transformation note (LaTeX + PDF) |
 | [`printer_control/`](printer_control/) | Controller design and implementation, SV08/Klipper/Moonraker setup, stationary print and line checks, shutdown diagnostics |
 | [`raspberry_pi/`](raspberry_pi/) | Pi deployment guides (Chinese), RealSense install, release and ConvLSTM validation reports |
