@@ -1,0 +1,5 @@
+{
+  "occlusion_shape": "gaussian",
+  "occlusion_fraction": 0.2,
+  "gaussian_step_interval": 6
+}

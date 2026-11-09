@@ -98,6 +98,60 @@ class OcclusionPipelineTests(unittest.TestCase):
                 occlusion.evaluate(self.root / 'run/best.pt', self.root / 'splits.json',
                                    self.root / 'rejected', 'test', 'cpu')
 
+    def test_initialize_from_copies_weights_and_records_source(self):
+        import hashlib
+        from prediction import occlusion
+        with patch.object(occlusion, 'load_splits', return_value=self.splits), \
+             patch.object(occlusion, 'fit_normalization', return_value=self.normalization), \
+             patch.object(occlusion, 'OcclusionDataset', side_effect=self.dataset):
+            occlusion.train(self.root / 'splits.json', self.config, self.root / 'source', 'cpu')
+            source_path = self.root / 'source/best.pt'
+            source_model, _, _, _ = occlusion.load_checkpoint(source_path, 'cpu')
+            target_config = occlusion.read_config({**self.config, 'history': 3, 'horizon': 2,
+                                                   'expected_dt_ms': 33.3, 'learning_rate': 3e-4})
+            model = occlusion._model(target_config)
+            record = occlusion._initialize_weights(model, target_config, source_path)
+            for name, value in source_model.state_dict().items():
+                torch.testing.assert_close(model.state_dict()[name], value)
+            self.assertEqual(record['source_sha256'], hashlib.sha256(source_path.read_bytes()).hexdigest())
+            self.assertFalse(record['optimizer_state_transferred'])
+            run = occlusion.train(self.root / 'splits.json', {**self.config, 'learning_rate': 3e-4},
+                                  self.root / 'finetuned', 'cpu', initialize_from=source_path)
+            self.assertEqual(run['initialization']['source_checkpoint'], str(source_path.resolve()))
+            _, _, _, checkpoint = occlusion.load_checkpoint(self.root / 'finetuned/best.pt', 'cpu')
+            self.assertEqual(checkpoint['initialization']['source_sha256'], record['source_sha256'])
+            with self.assertRaisesRegex(ValueError, 'base_channels'):
+                occlusion._initialize_weights(occlusion._model(occlusion.read_config({**self.config, 'base_channels': 4})),
+                                              occlusion.read_config({**self.config, 'base_channels': 4}), source_path)
+
+    def test_evaluation_mask_override_replaces_only_mask_settings(self):
+        import json
+        from prediction import occlusion
+        seen = []
+
+        def dataset(sessions, config, normalization, seed, **kwargs):
+            seen.append(config)
+            return self.dataset(sessions, config, normalization, seed, **kwargs)
+
+        with patch.object(occlusion, 'load_splits', return_value=self.splits), \
+             patch.object(occlusion, 'fit_normalization', return_value=self.normalization), \
+             patch.object(occlusion, 'OcclusionDataset', side_effect=dataset):
+            occlusion.train(self.root / 'splits.json', {**self.config, 'occlusion_shape': 'gaussian'},
+                            self.root / 'run', 'cpu')
+            masks = self.root / 'masks.json'
+            masks.write_text(json.dumps({'occlusion_shape': 'large', 'large_occlusion_fraction_range': [0.7, 0.9],
+                                         'large_occlusion_stationary_probability': 1.0}))
+            report = occlusion.evaluate(self.root / 'run/best.pt', self.root / 'splits.json',
+                                        self.root / 'evaluation', 'test', 'cpu', masks)
+            self.assertEqual(seen[-1]['occlusion_shape'], 'large')
+            self.assertEqual(seen[-1]['history'], self.config['history'])
+            self.assertEqual(report['evaluation_masks']['large_occlusion_fraction_range'], [0.7, 0.9])
+            self.assertEqual(report['config']['occlusion_shape'], 'gaussian')
+            masks.write_text(json.dumps({'history': 5}))
+            with self.assertRaisesRegex(ValueError, 'may only set'):
+                occlusion.evaluate(self.root / 'run/best.pt', self.root / 'splits.json',
+                                   self.root / 'evaluation2', 'test', 'cpu', masks)
+
     def test_loss_skips_empty_hidden_region_and_rejects_nonfinite_valid(self):
         from prediction.occlusion import _loss_terms
         predicted = torch.zeros((1, 2, 1, 2, 2), requires_grad=True)

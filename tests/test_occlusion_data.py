@@ -96,6 +96,45 @@ class OcclusionDataTests(unittest.TestCase):
             np.testing.assert_array_equal(at_30_fps[0], at_30_fps[i])
         self.assertFalse(np.array_equal(at_30_fps[0], at_30_fps[6]))
 
+    def test_large_stationary_masks_cover_requested_range_and_do_not_move(self):
+        session = self.session(timestamps=tuple(range(0, 100, 10)))
+        dataset = self.dataset(session, history=6, occlusion_shape='large',
+                               large_occlusion_fraction_range=[0.7, 0.9],
+                               large_occlusion_stationary_probability=1.0)
+        for index in range(len(dataset)):
+            observed = dataset[index]['inputs'][:, 1] > .5
+            hidden_fraction = 1 - observed.mean(axis=(1, 2))
+            self.assertTrue(np.all((hidden_fraction >= 0.69) & (hidden_fraction <= 0.91)))
+            self.assertTrue(np.all(observed == observed[0]))
+        self.assertEqual(dataset.summary()['large_occlusion_fraction_range'], [0.7, 0.9])
+
+    def test_mixed_masks_draw_both_regimes_reproducibly(self):
+        session = self.session(timestamps=tuple(range(0, 400, 10)))
+        dataset = self.dataset(session, history=3, horizon=1, occlusion_shape='mixed',
+                               occlusion_fraction=0.2, large_occlusion_probability=0.5)
+        fractions = [1 - (dataset[i]['inputs'][-1, 1] > .5).mean() for i in range(len(dataset))]
+        self.assertTrue(any(f < 0.3 for f in fractions))
+        self.assertTrue(any(f >= 0.39 for f in fractions))
+        again = self.dataset(session, history=3, horizon=1, occlusion_shape='mixed',
+                             occlusion_fraction=0.2, large_occlusion_probability=0.5)
+        np.testing.assert_array_equal(dataset[5]['inputs'], again[5]['inputs'])
+
+    def test_gaussian_masks_unchanged_by_large_mask_settings(self):
+        session = self.session(timestamps=tuple(range(0, 100, 10)))
+        plain = self.dataset(session, occlusion_shape='gaussian')
+        configured = self.dataset(session, occlusion_shape='gaussian', large_occlusion_probability=1.0,
+                                  large_occlusion_fraction_range=[0.8, 0.9])
+        for index in range(len(plain)):
+            np.testing.assert_array_equal(plain[index]['inputs'], configured[index]['inputs'])
+
+    def test_invalid_large_mask_settings_are_rejected(self):
+        session = self.session()
+        for bad in ({'large_occlusion_fraction_range': [0.9, 0.4]}, {'large_occlusion_fraction_range': [0, 0.5]},
+                    {'large_occlusion_fraction_range': [0.5]}, {'large_occlusion_probability': 1.5},
+                    {'large_occlusion_stationary_probability': True}, {'occlusion_shape': 'ring'}):
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                self.dataset(session, **bad)
+
     def test_frame_cache_and_window_stride_preserve_samples(self):
         from prediction.occlusion_data import _load_arrays
         session = self.session(timestamps=tuple(range(0, 100, 10)))

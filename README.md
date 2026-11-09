@@ -9,13 +9,15 @@ forecasts the next six frames (about 200 ms at 30 FPS).
 ```text
 D405 RGB-D ──► ROI crop + depth gate ──► 23×45 height map + valid mask ──► ConvLSTM + U-Net ──► current map + 6 future maps
                                               ▲                                   (hidden cells filled)
-                         print-head mask ─────┘  (synthetic Gaussian masks in training,
+                         print-head mask ─────┘  (synthetic 20 % + head-scale 40–90 % masks in training,
                                                   measured head box + depth envelope at test)
 ```
 
-Status (6 Nov 2026): the offline pipeline is trained and evaluated on 30 FPS servo
-recordings. Height values are camera-axis depth in a camera-XY grid, not printer-frame
-height. Physical accuracy behind a real nozzle has not yet been validated (see
+Status (8 Nov 2026): the offline pipeline is trained and evaluated on 30 FPS servo
+recordings. The primary model is trained for 100 epochs with mixed (standard + head-scale)
+synthetic masks. Height maps are camera-axis depth on a camera-XY grid; real-head results
+are also re-expressed as printer height through a provisional four-dot registration.
+Physical accuracy behind a real nozzle has not yet been validated (see
 [Current results](#current-results)).
 
 ## Repository layout
@@ -43,7 +45,7 @@ Dynamic_Surface_Printer/
 │   ├── estimate_pair_registration.py      Exploratory 3-D registration of a repeat pair
 │   ├── head_mask/                 RGB head-silhouette analysis and synthetic blocking (2 Nov pilot)
 │   └── matlab/, build_pi_bundle.py, convert_servo_depth.py, …
-├── configs/                       JSON configs; occlusion_d405_30fps_20261105.json = trained model
+├── configs/                       JSON configs; occlusion_d405_30fps_mixed_100ep.json = primary model
 ├── output/                        Main-line results, one folder per pipeline stage → output/README.md
 ├── docs/                          Method, protocols and subsystem guides → docs/README.md
 ├── tests/                         unittest suite
@@ -95,14 +97,20 @@ are not a verified segmentation.
 ```powershell
 .\.venv-tds\Scripts\python.exe -m prediction.occlusion train `
   --splits output\servo_30fps_camera_maps_20261105\splits.json `
-  --config configs\occlusion_d405_30fps_20261105.json `
-  --output output\servo_30fps_convlstm_<date> --device cuda
+  --config configs\occlusion_d405_30fps_mixed_100ep.json `
+  --output output\servo_30fps_mixed_100ep_<date> --device cuda
 ```
+
+The cloth-pretrained variant adds `--initialize-from output\cloth_pretrain_20261107\best.pt`
+with `configs\occlusion_d405_30fps_mixed_finetune.json`. The first paper model used
+`configs\occlusion_d405_30fps_20261105.json` (30 epochs, standard masks only). See
+[the training guide](docs/occlusion_forecasting/TRAINING_100EP_AND_MIXED_MASKS.md).
 
 Inputs: 25 frames (about 800 ms) of normalized height, validity, time since last
 observation and a never-observed flag. Outputs: the current reconstruction plus 6 future
-maps. During training, moving anisotropic Gaussian masks hide about 20% of the grid in
-the input history. The loss is masked MAE with an extra term (`hidden_weight` = 2) on
+maps. During training, half the windows get moving anisotropic Gaussian masks hiding
+about 20% of the grid; the other half get head-scale masks hiding 40–90%, stationary
+half the time. The loss is masked MAE with an extra term (`hidden_weight` = 2) on
 hidden cells. See the [pipeline guide](docs/occlusion_forecasting/OCCLUSION_CONVLSTM_UNET.md).
 
 ### 4. Evaluate with synthetic occlusion (held-out patterns)
@@ -113,6 +121,9 @@ hidden cells. See the [pipeline guide](docs/occlusion_forecasting/OCCLUSION_CONV
   --splits output\servo_30fps_camera_maps_20261105\splits.json `
   --output output\servo_30fps_internal_synthetic_eval_<date> --device cuda
 ```
+
+Add `--mask-config configs\masks\large_stationary.json` for the head-scale stress test
+(70–90% of the grid hidden, stationary).
 
 ### 5. Evaluate with the real print head
 
@@ -135,6 +146,13 @@ calibration. See [real-head evaluation](docs/occlusion_forecasting/REAL_OCCLUSIO
   --prepared output\real_occlusion_prior_repeats_<date>\21_amplitude_beats.npz `
   --predictions output\real_occlusion_repeat_evaluation_<date>\21_amplitude_beats.npz `
   --output output\real_occlusion_repeat_evaluation_<date>\example.png
+
+# Re-express the difference as printer height (needs scipy and a registration transform)
+.\.venv-tds\Scripts\python.exe -m tools.rescore_real_head_printer `
+  --transform output\registration_20261108\transform.json `
+  --prepared output\real_occlusion_prior_repeats_<date> `
+  --model mixed100=output\real_occlusion_repeat_evaluation_<date> `
+  --output output\printer_frame_rescore_<date>
 ```
 
 ### 6. Replay on any recorded session
@@ -148,21 +166,34 @@ calibration. See [real-head evaluation](docs/occlusion_forecasting/REAL_OCCLUSIO
 
 ## Current results
 
-Model: `output/servo_30fps_convlstm_20261105/best.pt` (epoch 26 of 30). It was trained on
-16 patterns, validated on 2 and tested on 2.
+Five models share one architecture (ConvLSTM + U-Net, 708,753 parameters) and the same
+split: 16 patterns for training, 2 for validation and 2 for testing. All numbers below
+come from the lab GPU, where every model saw identical evaluation masks. MAE is in mm,
+current / 200 ms.
 
-| Test | Region | Horizon | Model MAE | Persistence MAE (same support) |
-| --- | --- | --- | ---: | ---: |
-| Synthetic masks, held-out patterns 18 & 20 | hidden cells | current | 2.59 mm | 3.60 mm |
-| Synthetic masks, held-out patterns 18 & 20 | hidden cells | 200 ms | 3.47 mm | 4.41 mm |
-| Real head, patterns 21–25 vs. separate repeat run | head-mask region | current | 5.79 mm* | n/a |
-| Real head, patterns 21–25 vs. separate repeat run | head-mask region | 200 ms | 5.21 mm* | n/a |
+| Model | Folder in `output/` | Paper masks, supported hidden | Large masks (70–90 %, stationary) | Real head, printer height* |
+| --- | --- | ---: | ---: | ---: |
+| **Mixed masks, 100 ep (primary)** | `servo_30fps_mixed_100ep_20261108` | 2.48 / 3.20 | 3.28 / 3.29 | 4.02 / 3.61 |
+| Mixed masks, cloth-pretrained | `servo_30fps_mixed_finetune_20261108` | 2.49 / 3.50 | 3.61 / 3.65 | 2.97 / 2.27 |
+| Gaussian masks, 100 ep | `servo_30fps_convlstm_100ep_20261107` | 2.47 / 3.17 | 36.31 / 36.57 | 15.85 / 16.84 |
+| Gaussian masks, cloth-pretrained | `servo_30fps_finetune_20261107` | 2.48 / 3.51 | 28.08 / 19.68 | 6.59 / 5.22 |
+| Gaussian masks, 30 ep (first paper model) | `servo_30fps_convlstm_20261105` | 2.60 / 3.49 | 20.61 / 20.41 | 2.64 / 2.35 |
+| Last observation (supported cells only) | – | 3.58 / 4.40 | – | – |
+| Repeat recordings, no model | – | – | – | 2.92 / 2.91 |
 
-\*These are differences from an unregistered repeat recording made about 45 minutes
-earlier, not ground-truth errors. On cells visible in both runs, the two recordings
-already differ by 5.49 mm MAE. Details are in
-[`output/servo_30fps_convlstm_20261105/RESULTS.md`](output/servo_30fps_convlstm_20261105/RESULTS.md)
-and [`output/real_occlusion_repeat_evaluation_20261106/TEST_RESULTS.md`](output/real_occlusion_repeat_evaluation_20261106/TEST_RESULTS.md).
+\*The real-head numbers are differences from an unregistered repeat recording made about
+45 minutes earlier, not ground-truth errors. They were re-expressed as printer height
+through a provisional four-dot registration (0.29 mm RMS). The two recordings already
+differ by 2.92 mm on cells visible in both, so models near that floor cannot be ranked
+by this test. Models trained only on 20 % masks fail when 70–90 % of the surface is
+hidden; mixing head-scale masks into training fixes this.
+
+The full tables, including camera-depth values and offsets, are in
+[`docs/occlusion_forecasting/RESULTS_100EP_MIXED_MASKS_20261108.md`](docs/occlusion_forecasting/RESULTS_100EP_MIXED_MASKS_20261108.md).
+The paper's Methodology and Results sections are in
+[`docs/occlusion_forecasting/METHODOLOGY_REVISED.tex`](docs/occlusion_forecasting/METHODOLOGY_REVISED.tex)
+and [`RESULTS.tex`](docs/occlusion_forecasting/RESULTS.tex). The training procedure is in
+[`TRAINING_100EP_AND_MIXED_MASKS.md`](docs/occlusion_forecasting/TRAINING_100EP_AND_MIXED_MASKS.md).
 
 **Open issues:** validated camera–printer registration; synchronized independent
 reference behind the head; a measured per-frame nozzle mask instead of a padded box;

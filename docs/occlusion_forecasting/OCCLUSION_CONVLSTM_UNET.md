@@ -104,6 +104,39 @@ shape `[horizon + 1, height, width]`, observation masks, and nominal timestamps
 in the recording's clock domain. These masks do not represent model confidence.
 Replay assumes the recording's valid mask already excludes any toolhead points.
 
+### Fine-tuning, head-scale masks and printer-frame scoring
+
+`train --initialize-from <checkpoint>` starts from another occlusion checkpoint's
+weights, for example a model pretrained on the EPFL cloth data
+(`configs/occlusion_cloth_pretrain_5fps.json`). Only the weights are copied:
+normalization is fitted on the target training sessions and the optimizer starts
+fresh. `base_channels` and `kernel_size` must match; history, horizon, frame rate
+and grid may differ. `run.json` and `best.pt` record the source path, SHA-256,
+epoch and configuration under `initialization`.
+
+`occlusion_shape` also accepts `mixed` and `large`. With `mixed`, each window gets
+a large Gaussian blob with probability `large_occlusion_probability` (default 0.5),
+otherwise the standard moving Gaussian; `large` always uses the blob. The blob
+covers a fraction drawn from `large_occlusion_fraction_range` (default
+[0.4, 0.9]) and stays still with probability
+`large_occlusion_stationary_probability` (default 0.5). Standard Gaussian masks
+are unchanged by these settings. See `configs/occlusion_d405_30fps_mixed_100ep.json`
+and `configs/occlusion_d405_30fps_mixed_finetune.json`.
+
+`evaluate --mask-config <json>` replaces only the synthetic-mask settings for an
+evaluation, so models trained with different masks are compared under the same
+test masks; window selection and the mask seed do not change.
+`configs/masks/paper_gaussian20.json` reproduces the paper's masks and
+`configs/masks/large_stationary.json` hides 70-90% of the grid with a stationary
+blob. `tools.evaluate_occlusion_heldout` accepts the same option.
+
+`python -m tools.rescore_real_head_printer` re-scores saved real print-head
+predictions as vertical errors in the printer frame, using a
+`depth_camera_to_printer` registration from `CameraCalibration.transform`. The
+registration must describe the camera pose at the time of the recordings.
+Results of these options are in
+[RESULTS_100EP_MIXED_MASKS_20261108.md](RESULTS_100EP_MIXED_MASKS_20261108.md).
+
 ## Model and limitations
 
 Input channels are normalized observed height, observation validity, clipped
