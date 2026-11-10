@@ -60,7 +60,7 @@ def evaluate(prepared, checkpoint, output, device, stride, batch_size, steps=(6,
     report = {'warning': 'Separate repeats, not simultaneous ground truth. Fixed scene features shift between runs; no 3D registration was validated. Mask and repeatability are preliminary; hidden errors are approximate.',
               'prepared':str(prepared.resolve()), 'checkpoint':str(checkpoint.resolve()),
               'stride':stride, 'rollout_steps':rollout, 'saved_forecast_steps':list(steps),
-              'trained_horizon_steps':config['horizon'],
+              'trained_horizon_steps':config.get('horizon'),
               'future_note':'200 ms target pairs repeat with blocked frame origin+6; future blocked measurements are not model inputs; hidden/visible support is defined at origin.',
               'patterns':{}}
     overall = {'hidden':[], 'visible':[], 'persistence_hidden':[], 'persistence_visible':[],

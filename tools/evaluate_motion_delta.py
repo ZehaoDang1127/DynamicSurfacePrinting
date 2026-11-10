@@ -36,6 +36,8 @@ import numpy as np
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'acquisition' / 'servo_d405'))
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 DEGREE = 3
 CENTER_DEG, HALF_RANGE_DEG = 150.0, 120.0
@@ -174,7 +176,7 @@ class DeltaStats:
         out = {'n': int(pred.size), 'reference_abs_median_mm': float(np.median(np.abs(ref))),
                'reference_abs_p95_mm': float(np.percentile(np.abs(ref), 95)),
                'predicted_abs_median_mm': float(np.median(np.abs(pred))),
-               'pearson_r': float(np.corrcoef(pred, ref)[0, 1]),
+               'pearson_r': float(np.corrcoef(pred, ref)[0, 1]) if pred.std() > 0 else None,
                'gain': float(np.polyfit(ref, pred, 1)[0]),
                'mae_model_mm': float(np.mean(np.abs(pred - ref))),
                'mae_persistence_mm': float(np.mean(np.abs(ref)))}
