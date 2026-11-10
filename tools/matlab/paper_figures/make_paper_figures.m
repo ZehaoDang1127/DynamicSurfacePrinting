@@ -13,4 +13,4 @@ dataDir = fullfile(here, 'data');
 paperFigureDir = fullfile(here, 'figures');
 
 plot_training_curves(dataDir, paperFigureDir);  % Fig. training_curves (Section 4.1)
-plot_mae_vs_lead(dataDir, paperFigureDir);      % Fig. synthetic_lead (Section 4.2)
+% plot_mae_vs_lead(dataDir, paperFigureDir);    % hidden MAE vs lead: dropped from the paper (values are in tab:synthetic)
