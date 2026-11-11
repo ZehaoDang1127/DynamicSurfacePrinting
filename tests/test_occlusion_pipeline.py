@@ -124,6 +124,32 @@ class OcclusionPipelineTests(unittest.TestCase):
                 occlusion._initialize_weights(occlusion._model(occlusion.read_config({**self.config, 'base_channels': 4})),
                                               occlusion.read_config({**self.config, 'base_channels': 4}), source_path)
 
+    def test_ablation_config_round_trip_and_old_checkpoint_defaults(self):
+        from prediction import occlusion
+        with patch.object(occlusion, 'load_splits', return_value=self.splits), \
+             patch.object(occlusion, 'fit_normalization', return_value=self.normalization), \
+             patch.object(occlusion, 'OcclusionDataset', side_effect=self.dataset):
+            ablation = {**self.config, 'input_channels': ['mask', 'depth'], 'recurrence': 'stacked'}
+            occlusion.train(self.root / 'splits.json', ablation, self.root / 'ablation', 'cpu')
+            model, config, _, _ = occlusion.load_checkpoint(self.root / 'ablation/best.pt', 'cpu')
+            self.assertEqual(config['input_channels'], ['depth', 'mask'])
+            self.assertEqual((model.input_channels, model.recurrence), (('depth', 'mask'), 'stacked'))
+            with self.assertRaisesRegex(ValueError, 'input_channels, recurrence'):
+                occlusion._initialize_weights(occlusion._model(occlusion.read_config(self.config)),
+                                              occlusion.read_config(self.config), self.root / 'ablation/best.pt')
+            # Checkpoints written before the ablation switches load as the paper model.
+            occlusion.train(self.root / 'splits.json', self.config, self.root / 'default', 'cpu')
+            checkpoint = torch.load(self.root / 'default/best.pt', weights_only=True)
+            for key in ('input_channels', 'recurrence'):
+                del checkpoint['config'][key]
+            torch.save(checkpoint, self.root / 'old.pt')
+            model, config, _, _ = occlusion.load_checkpoint(self.root / 'old.pt', 'cpu')
+            self.assertEqual(config['input_channels'], ['depth', 'mask', 'age', 'never'])
+            self.assertEqual(model.recurrence, 'dynamics_correction')
+        for bad in ({'input_channels': ['mask']}, {'input_channels': 'depth'}, {'recurrence': 'gru'}):
+            with self.assertRaises(ValueError):
+                occlusion.read_config({**self.config, **bad})
+
     def test_evaluation_mask_override_replaces_only_mask_settings(self):
         import json
         from prediction import occlusion

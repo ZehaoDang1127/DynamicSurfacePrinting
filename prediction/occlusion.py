@@ -22,7 +22,7 @@ from .data import Normalization, fit_normalization, load_splits
 from .metrics import ErrorStats
 from .occlusion_data import (LARGE_OCCLUSION_DEFAULTS, OCCLUSION_SHAPES, OcclusionDataset,
                              validate_large_occlusion)
-from .occlusion_model import OcclusionUNetConvLSTM
+from .occlusion_model import INPUT_CHANNELS, RECURRENCES, OcclusionUNetConvLSTM, validate_input_channels
 from .training import resolve_device, _save_checkpoint
 
 
@@ -31,7 +31,8 @@ DEFAULT_CONFIG = {
     'timing_tolerance': .2, 'min_valid_fraction': .1,
     'age_scale_ms': 1000., 'occlusion_fraction': .25, 'occlusion_shape': 'rectangle',
     'gaussian_step_interval': 1, **LARGE_OCCLUSION_DEFAULTS,
-    'base_channels': 16, 'kernel_size': 3, 'epochs': 30, 'patience': 5,
+    'base_channels': 16, 'kernel_size': 3, 'input_channels': list(INPUT_CHANNELS),
+    'recurrence': 'dynamics_correction', 'epochs': 30, 'patience': 5,
     'batch_size': 4, 'learning_rate': .001, 'grad_clip': 1.,
     'hidden_weight': 1., 'seed': 42, 'cache_frames': False, 'train_window_stride': 1,
 }
@@ -74,11 +75,16 @@ def read_config(value: dict) -> dict:
     config.update(validate_large_occlusion(config))
     if config['hidden_weight'] < 0:
         raise ValueError('hidden_weight must be nonnegative')
+    config['input_channels'] = list(validate_input_channels(config['input_channels']))
+    if config['recurrence'] not in RECURRENCES:
+        raise ValueError('recurrence must be one of ' + ', '.join(RECURRENCES))
     return config
 
 
 def _model(config):
-    return OcclusionUNetConvLSTM(base_channels=config['base_channels'], kernel_size=config['kernel_size'])
+    return OcclusionUNetConvLSTM(base_channels=config['base_channels'], kernel_size=config['kernel_size'],
+                                 input_channels=tuple(config['input_channels']),
+                                 recurrence=config['recurrence'])
 
 
 def _collate(samples):
@@ -226,7 +232,8 @@ def train(split_path, config, output_dir, device='auto', initialize_from=None):
 def _initialize_weights(model, config, path):
     """Copy weights from a compatible occlusion checkpoint and record their source.
 
-    Only ``base_channels`` and ``kernel_size`` determine parameter shapes; history,
+    Only ``base_channels``, ``kernel_size``, ``input_channels`` and ``recurrence``
+    determine parameter shapes; history,
     horizon, frame rate, grid size and geometry may differ between source and target.
     Pretraining provides an initialization only and does not qualify the source
     task or geometry for the target setup.
@@ -234,7 +241,8 @@ def _initialize_weights(model, config, path):
     source_path = Path(path).expanduser().resolve()
     source_sha256 = hashlib.sha256(source_path.read_bytes()).hexdigest()
     source_model, source_config, _, source = load_checkpoint(source_path, 'cpu')
-    differing = [k for k in ('base_channels', 'kernel_size') if source_config[k] != config[k]]
+    differing = [k for k in ('base_channels', 'kernel_size', 'input_channels', 'recurrence')
+                 if source_config[k] != config[k]]
     if differing:
         raise ValueError('initialization architecture differs from target: ' + ', '.join(differing))
     model.load_state_dict(source_model.state_dict(), strict=True)

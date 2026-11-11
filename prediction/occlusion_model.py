@@ -4,6 +4,16 @@ Inputs contain normalized observed heights, a surface-observation mask,
 normalized observation age, and a never-observed flag. The decoder's skip
 features come from the latest history frame containing observations; no future
 surface or generated height is fed back as an observation.
+
+Two ablation switches leave the default model unchanged:
+
+* ``input_channels`` selects which of the four input channels reach the encoder.
+  The data still carry all four, and the mask is still used to zero depth
+  placeholders and to detect frames without observed cells.
+* ``recurrence`` replaces the dynamics/correction pair with one ConvLSTM cell
+  (``single``) or two stacked ConvLSTM layers with the same parameter count
+  (``stacked``). Both receive the encoded frame when it has observed cells and
+  zero input otherwise, as during rollout.
 """
 
 from __future__ import annotations
@@ -13,6 +23,22 @@ from torch import Tensor, nn
 import torch.nn.functional as F
 
 from .model import ConvLSTMCell
+
+
+INPUT_CHANNELS = ('depth', 'mask', 'age', 'never')
+RECURRENCES = ('dynamics_correction', 'single', 'stacked')
+
+
+def validate_input_channels(value) -> tuple[str, ...]:
+    """Return the selected encoder input channels in canonical order."""
+    if isinstance(value, str) or not isinstance(value, (list, tuple)):
+        raise ValueError('input_channels must be a list of channel names')
+    names = tuple(value)
+    if not names or any(name not in INPUT_CHANNELS for name in names) or len(set(names)) != len(names):
+        raise ValueError('input_channels must be distinct names from ' + ', '.join(INPUT_CHANNELS))
+    if 'depth' not in names:
+        raise ValueError('input_channels must include depth')
+    return tuple(name for name in INPUT_CHANNELS if name in names)
 
 
 def _block(in_channels: int, out_channels: int) -> nn.Sequential:
@@ -32,20 +58,34 @@ class OcclusionUNetConvLSTM(nn.Module):
     is an experimental observer, not an uncertainty estimate.
     """
 
-    def __init__(self, base_channels: int = 16, kernel_size: int = 3) -> None:
+    def __init__(self, base_channels: int = 16, kernel_size: int = 3,
+                 input_channels: tuple[str, ...] = INPUT_CHANNELS,
+                 recurrence: str = 'dynamics_correction') -> None:
         super().__init__()
         if type(base_channels) is not int or base_channels < 1:
             raise ValueError('base_channels must be a positive integer')
         if type(kernel_size) is not int or kernel_size < 1 or kernel_size % 2 != 1:
             raise ValueError('kernel_size must be a positive odd integer')
+        input_channels = validate_input_channels(input_channels)
+        if recurrence not in RECURRENCES:
+            raise ValueError('recurrence must be one of ' + ', '.join(RECURRENCES))
         self.base_channels = base_channels
         self.kernel_size = kernel_size
+        self.input_channels = input_channels
+        self.recurrence = recurrence
+        self._channel_index = [INPUT_CHANNELS.index(name) for name in input_channels]
         channels = base_channels
-        self.encoder_high = _block(4, channels)
+        self.encoder_high = _block(len(input_channels), channels)
         self.encoder_low = _block(channels, 2 * channels)
         self.encoder_latent = _block(2 * channels, 4 * channels)
-        self.dynamics = ConvLSTMCell(4 * channels, 4 * channels, kernel_size)
-        self.correction = ConvLSTMCell(4 * channels, 4 * channels, kernel_size)
+        if recurrence == 'dynamics_correction':
+            self.dynamics = ConvLSTMCell(4 * channels, 4 * channels, kernel_size)
+            self.correction = ConvLSTMCell(4 * channels, 4 * channels, kernel_size)
+        elif recurrence == 'single':
+            self.recurrent = ConvLSTMCell(4 * channels, 4 * channels, kernel_size)
+        else:
+            self.recurrent_lower = ConvLSTMCell(4 * channels, 4 * channels, kernel_size)
+            self.recurrent_upper = ConvLSTMCell(4 * channels, 4 * channels, kernel_size)
         self.decoder_low = _block(6 * channels, 2 * channels)
         self.decoder_high = _block(3 * channels, channels)
         self.head = nn.Conv2d(channels, 1, 1)
@@ -59,6 +99,8 @@ class OcclusionUNetConvLSTM(nn.Module):
         # A missing cell's placeholder cannot be interpreted as a height.
         observed = frame[:, 1:2]
         frame = torch.cat((frame[:, :1] * observed, frame[:, 1:]), dim=1)
+        if len(self._channel_index) != frame.shape[1]:
+            frame = frame[:, self._channel_index]
         high = self.encoder_high(frame)
         low = self.encoder_low(self._downsample(high))
         latent = self.encoder_latent(self._downsample(low))
@@ -88,23 +130,48 @@ class OcclusionUNetConvLSTM(nn.Module):
         if torch.any(inputs[:, :, 2:3] < 0) or torch.any(inputs[:, :, 2:3] > 1):
             raise ValueError('normalized observation age must be in [0, 1]')
 
-        state = None
+        states = None
         high_skip = low_skip = None
         for frame in inputs.unbind(dim=1):
             high, low, latent = self._encode(frame)
-            if state is None:
+            if states is None:
                 hidden = torch.zeros_like(latent)
-                state = (hidden, torch.zeros_like(hidden))
+                states = [(hidden, torch.zeros_like(hidden)) for _ in range(self._state_count)]
                 high_skip, low_skip = torch.zeros_like(high), torch.zeros_like(low)
-            state = self.dynamics(torch.zeros_like(latent), state)
-            corrected = self.correction(latent, state)
             has_observation = frame[:, 1:2].bool().flatten(1).any(dim=1).view(-1, 1, 1, 1)
-            state = tuple(torch.where(has_observation, new, old) for new, old in zip(corrected, state))
+            states = self._observe(latent, has_observation, states)
             high_skip = torch.where(has_observation, high, high_skip)
             low_skip = torch.where(has_observation, low, low_skip)
 
-        outputs = [self._decode(state[0], high_skip, low_skip)]
+        outputs = [self._decode(states[-1][0], high_skip, low_skip)]
         for _ in range(rollout_steps):
-            state = self.dynamics(torch.zeros_like(state[0]), state)
-            outputs.append(self._decode(state[0], high_skip, low_skip))
+            states = self._propagate(states)
+            outputs.append(self._decode(states[-1][0], high_skip, low_skip))
         return torch.stack(outputs, dim=1)
+
+    @property
+    def _state_count(self) -> int:
+        return 2 if self.recurrence == 'stacked' else 1
+
+    def _observe(self, latent: Tensor, has_observation: Tensor, states: list) -> list:
+        """Advance the latent state by one input frame."""
+        zeros = torch.zeros_like(latent)
+        if self.recurrence == 'dynamics_correction':
+            predicted = self.dynamics(zeros, states[0])
+            corrected = self.correction(latent, predicted)
+            return [tuple(torch.where(has_observation, new, old) for new, old in zip(corrected, predicted))]
+        frame_input = torch.where(has_observation, latent, zeros)
+        if self.recurrence == 'single':
+            return [self.recurrent(frame_input, states[0])]
+        lower = self.recurrent_lower(frame_input, states[0])
+        return [lower, self.recurrent_upper(lower[0], states[1])]
+
+    def _propagate(self, states: list) -> list:
+        """Advance the latent state by one step without an observation."""
+        zeros = torch.zeros_like(states[0][0])
+        if self.recurrence == 'dynamics_correction':
+            return [self.dynamics(zeros, states[0])]
+        if self.recurrence == 'single':
+            return [self.recurrent(zeros, states[0])]
+        lower = self.recurrent_lower(zeros, states[0])
+        return [lower, self.recurrent_upper(lower[0], states[1])]
