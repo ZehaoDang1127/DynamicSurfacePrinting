@@ -24,7 +24,11 @@ def stats(values):
             'bias_prediction_minus_repeat_mm': float(np.mean(a)) if a.size else None}
 
 
-def evaluate(prepared, checkpoint, output, device, stride, batch_size):
+def evaluate(prepared, checkpoint, output, device, stride, batch_size, steps=(6,)):
+    steps=tuple(sorted(set(int(k) for k in steps)))
+    if not steps or steps[0] < 1:
+        raise ValueError('forecast steps must be positive')
+    rollout=max(steps)
     if output.exists() and (not output.is_dir() or any(output.iterdir())):
         raise FileExistsError(f'output must be new or empty: {output}')
     model, config, normalization, ckpt = load_checkpoint(checkpoint, device)
@@ -55,7 +59,8 @@ def evaluate(prepared, checkpoint, output, device, stride, batch_size):
     output.mkdir(parents=True, exist_ok=True)
     report = {'warning': 'Separate repeats, not simultaneous ground truth. Fixed scene features shift between runs; no 3D registration was validated. Mask and repeatability are preliminary; hidden errors are approximate.',
               'prepared':str(prepared.resolve()), 'checkpoint':str(checkpoint.resolve()),
-              'stride':stride, 'rollout_steps':6,
+              'stride':stride, 'rollout_steps':rollout, 'saved_forecast_steps':list(steps),
+              'trained_horizon_steps':config.get('horizon'),
               'future_note':'200 ms target pairs repeat with blocked frame origin+6; future blocked measurements are not model inputs; hidden/visible support is defined at origin.',
               'patterns':{}}
     overall = {'hidden':[], 'visible':[], 'persistence_hidden':[], 'persistence_visible':[],
@@ -80,15 +85,17 @@ def evaluate(prepared, checkpoint, output, device, stride, batch_size):
         errors={name:[] for name in overall}
         predictions=[]
         future_predictions=[]
+        step_predictions=[]
         future_count=0
         for start in range(0,len(selected),batch_size):
             ids=selected[start:start+batch_size]
             batch=np.stack([encode_history(h[i-history+1:i+1],v[i-history+1:i+1],t[i-history+1:i+1],normalization,config['age_scale_ms']) for i in ids])
             with torch.inference_mode():
                 x=torch.from_numpy(batch).to(device)
-                predicted=normalization.denormalize(model(x, rollout_steps=6)[:,:,0].cpu().numpy())
+                predicted=normalization.denormalize(model(x, rollout_steps=max(rollout,6))[:,:,0].cpu().numpy())
             predictions.append(predicted[:,0].astype(np.float32))
             future_predictions.append(predicted[:,6].astype(np.float32))
+            step_predictions.append(predicted[:,list(steps)].astype(np.float32))
             for i,pred in zip(ids,predicted):
                 j=match[i]
                 past_valid=v[i-history+1:i+1]
@@ -116,7 +123,9 @@ def evaluate(prepared, checkpoint, output, device, stride, batch_size):
             overall[key].extend(errors[key])
         np.savez_compressed(output/path.name, origin_index=np.asarray(selected,dtype=np.int32),
                             prediction_mm=np.concatenate(predictions) if predictions else np.empty((0,23,45),np.float32),
-                            prediction_200ms_mm=np.concatenate(future_predictions) if future_predictions else np.empty((0,23,45),np.float32))
+                            prediction_200ms_mm=np.concatenate(future_predictions) if future_predictions else np.empty((0,23,45),np.float32),
+                            prediction_steps=np.asarray(steps,dtype=np.int32),
+                            prediction_future_mm=np.concatenate(step_predictions) if step_predictions else np.empty((0,len(steps),23,45),np.float32))
         report['patterns'][path.stem]={'scored_windows':len(selected),
             'mean_current_observed_fraction':float(v[selected].mean()) if selected else None,
             'hidden_repeat_error':stats(errors['hidden']), 'visible_repeat_error':stats(errors['visible']),
@@ -144,7 +153,9 @@ if __name__ == '__main__':
     p.add_argument('--device',default='cuda')
     p.add_argument('--stride',type=int,default=1)
     p.add_argument('--batch-size',type=int,default=16)
+    p.add_argument('--steps',type=int,nargs='+',default=[6],
+                   help='forecast steps (frames) whose predictions are saved; 200 ms scoring always uses step 6')
     a=p.parse_args()
     if a.stride < 1 or a.batch_size < 1:
         p.error('stride and batch size must be positive')
-    evaluate(a.prepared,a.checkpoint,a.output,a.device,a.stride,a.batch_size)
+    evaluate(a.prepared,a.checkpoint,a.output,a.device,a.stride,a.batch_size,a.steps)
