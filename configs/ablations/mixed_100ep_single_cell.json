@@ -1,0 +1,29 @@
+{
+  "history": 25,
+  "horizon": 6,
+  "expected_dt_ms": 33.333333333333336,
+  "timing_tolerance": 0.2,
+  "min_valid_fraction": 0.1,
+  "age_scale_ms": 1000.0,
+  "occlusion_fraction": 0.2,
+  "occlusion_shape": "mixed",
+  "gaussian_step_interval": 6,
+  "base_channels": 16,
+  "kernel_size": 3,
+  "batch_size": 8,
+  "learning_rate": 0.001,
+  "epochs": 100,
+  "patience": 100,
+  "grad_clip": 1.0,
+  "hidden_weight": 2.0,
+  "seed": 42,
+  "cache_frames": true,
+  "train_window_stride": 12,
+  "large_occlusion_probability": 0.5,
+  "large_occlusion_fraction_range": [
+    0.4,
+    0.9
+  ],
+  "large_occlusion_stationary_probability": 0.5,
+  "recurrence": "single"
+}

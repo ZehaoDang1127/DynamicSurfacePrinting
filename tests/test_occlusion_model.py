@@ -73,6 +73,57 @@ class OcclusionModelTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 model(inputs, 1)
 
+    def test_default_model_keeps_paper_parameters(self):
+        model = OcclusionUNetConvLSTM()
+        self.assertEqual(sum(p.numel() for p in model.parameters()), 708_753)
+        self.assertTrue(any(k.startswith('dynamics.') for k in model.state_dict()))
+        self.assertTrue(any(k.startswith('correction.') for k in model.state_dict()))
+
+    def test_ablation_parameter_counts(self):
+        expected = {
+            (('depth', 'mask', 'age'), 'dynamics_correction'): 708_753 - 144,
+            (('depth', 'mask'), 'dynamics_correction'): 708_753 - 2 * 144,
+            (('depth',), 'dynamics_correction'): 708_753 - 3 * 144,
+            (('depth', 'mask', 'age', 'never'), 'stacked'): 708_753,
+            (('depth', 'mask', 'age', 'never'), 'single'): 708_753 - 295_168,
+        }
+        for (channels, recurrence), count in expected.items():
+            model = OcclusionUNetConvLSTM(input_channels=channels, recurrence=recurrence)
+            self.assertEqual(sum(p.numel() for p in model.parameters()), count, (channels, recurrence))
+
+    def test_dropped_channels_do_not_change_predictions(self):
+        torch.manual_seed(3)
+        model = OcclusionUNetConvLSTM(base_channels=2, input_channels=('mask', 'depth')).eval()
+        self.assertEqual(model.input_channels, ('depth', 'mask'))
+        inputs = self.inputs()
+        inputs[:, :, 1, 1:3, 2:4] = 0
+        changed = inputs.clone()
+        changed[:, :, 2, 1:3, 2:4] = 1
+        changed[:, :, 3, 1:3, 2:4] = 1
+        with torch.no_grad():
+            torch.testing.assert_close(model(inputs, 2), model(changed, 2), rtol=0, atol=0)
+
+    def test_ablated_recurrences_follow_the_same_contract(self):
+        for recurrence in ('single', 'stacked'):
+            torch.manual_seed(5)
+            model = OcclusionUNetConvLSTM(base_channels=2, recurrence=recurrence).eval()
+            history = self.inputs()
+            missing = torch.zeros_like(history[:, :1])
+            missing[:, :, 0] = 1000
+            missing[:, :, 2:] = 1
+            with torch.no_grad():
+                predicted = model(history, 2)
+                later = model(torch.cat((history, missing), dim=1), 0)
+            self.assertEqual(predicted.shape, (2, 3, 1, 5, 7))
+            torch.testing.assert_close(predicted[:, 1], later[:, 0])
+
+    def test_invalid_ablation_settings_are_rejected(self):
+        for channels in ((), ('mask',), ('depth', 'depth'), ('depth', 'height'), 'depth'):
+            with self.assertRaises(ValueError):
+                OcclusionUNetConvLSTM(base_channels=2, input_channels=channels)
+        with self.assertRaises(ValueError):
+            OcclusionUNetConvLSTM(base_channels=2, recurrence='gru')
+
 
 if __name__ == '__main__':
     unittest.main()
