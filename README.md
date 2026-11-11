@@ -1,4 +1,4 @@
-# Occlusion-Aware Forecasting of Dynamic Surface Towards Autonomous Material Extrusion (Pending NAMRC 55)
+# Occlusion-Aware Forecasting of Surface Motion for Adaptive 3D Printing in Dynamic Environments (Pending NAMRC 55)
 
 Occlusion-aware surface estimation and forecasting for printing on a moving surface.
 A RealSense D405 observes a deforming surface. Depth inside a fixed region of interest
